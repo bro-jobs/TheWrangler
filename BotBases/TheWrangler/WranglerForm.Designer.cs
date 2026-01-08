@@ -15,7 +15,7 @@
  * +-------------------------------------------+
  * |  [ ] Ignore Home                          |
  * +-------------------------------------------+
- * |  [    RUN    ]                            |
+ * |  [    RUN    ]    [Stop Gently]           |
  * +-------------------------------------------+
  * |  Status: Ready                            |
  * +-------------------------------------------+
@@ -68,6 +68,7 @@ namespace TheWrangler
             this.btnBrowse = new System.Windows.Forms.Button();
             this.chkIgnoreHome = new System.Windows.Forms.CheckBox();
             this.btnRun = new System.Windows.Forms.Button();
+            this.btnStopGently = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.txtLog = new System.Windows.Forms.RichTextBox();
             this.pnlMain.SuspendLayout();
@@ -85,6 +86,7 @@ namespace TheWrangler
             this.pnlMain.Controls.Add(this.btnBrowse);
             this.pnlMain.Controls.Add(this.chkIgnoreHome);
             this.pnlMain.Controls.Add(this.btnRun);
+            this.pnlMain.Controls.Add(this.btnStopGently);
             this.pnlMain.Controls.Add(this.lblStatus);
             this.pnlMain.Controls.Add(this.txtLog);
             this.pnlMain.Location = new System.Drawing.Point(12, 12);
@@ -162,11 +164,25 @@ namespace TheWrangler
             this.btnRun.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.btnRun.Location = new System.Drawing.Point(20, 160);
             this.btnRun.Name = "btnRun";
-            this.btnRun.Size = new System.Drawing.Size(423, 50);
+            this.btnRun.Size = new System.Drawing.Size(280, 50);
             this.btnRun.TabIndex = 5;
             this.btnRun.Text = "Run";
             this.btnRun.UseVisualStyleBackColor = true;
             this.btnRun.Click += new System.EventHandler(this.btnRun_Click);
+
+            //
+            // btnStopGently - Stop Gently button
+            //
+            this.btnStopGently.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnStopGently.Enabled = false;
+            this.btnStopGently.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnStopGently.Location = new System.Drawing.Point(310, 160);
+            this.btnStopGently.Name = "btnStopGently";
+            this.btnStopGently.Size = new System.Drawing.Size(133, 50);
+            this.btnStopGently.TabIndex = 6;
+            this.btnStopGently.Text = "Stop Gently";
+            this.btnStopGently.UseVisualStyleBackColor = true;
+            this.btnStopGently.Click += new System.EventHandler(this.btnStopGently_Click);
 
             //
             // lblStatus - Status display label
@@ -221,6 +237,7 @@ namespace TheWrangler
         private System.Windows.Forms.Button btnBrowse;
         private System.Windows.Forms.CheckBox chkIgnoreHome;
         private System.Windows.Forms.Button btnRun;
+        private System.Windows.Forms.Button btnStopGently;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.RichTextBox txtLog;
     }

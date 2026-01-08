@@ -330,6 +330,45 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Requests Lisbeth to stop gracefully - fire and forget version.
+        /// This can be called from the UI thread without blocking.
+        /// The stop will complete after the current action finishes.
+        /// </summary>
+        public void RequestStopGently()
+        {
+            if (_stopGently == null)
+            {
+                Log("Warning: StopGently method not available.");
+                return;
+            }
+
+            try
+            {
+                Log("Invoking StopGently...");
+                // Fire-and-forget: invoke and don't await
+                // The returned Task will run and signal Lisbeth to stop
+                var task = _stopGently.Invoke();
+
+                // Optional: log when it completes (without blocking)
+                task.ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        Log($"StopGently faulted: {t.Exception?.InnerException?.Message}");
+                    }
+                    else
+                    {
+                        Log("StopGently completed.");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Error invoking StopGently: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Calls Lisbeth's StopAction to clean up resources.
         /// Should be called when TheWrangler stops.
         /// </summary>

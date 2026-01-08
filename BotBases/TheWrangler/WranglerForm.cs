@@ -117,6 +117,7 @@ namespace TheWrangler
             // Style buttons
             StyleButton(btnBrowse, Color.FromArgb(0, 122, 204), Color.White);
             StyleButton(btnRun, Color.FromArgb(46, 204, 113), Color.White);
+            StyleButton(btnStopGently, Color.FromArgb(230, 126, 34), Color.White); // Orange for stop
 
             // Style labels
             lblTitle.ForeColor = Color.White;
@@ -226,6 +227,7 @@ namespace TheWrangler
                 // Update UI to show order is queued/running
                 btnRun.Enabled = false;
                 btnRun.Text = "Running...";
+                btnStopGently.Enabled = true; // Enable stop button while running
 
                 // Auto-start the bot if it's not running
                 if (!TheWranglerBotBase.IsBotRunning)
@@ -247,6 +249,25 @@ namespace TheWrangler
         {
             WranglerSettings.Instance.IgnoreHome = chkIgnoreHome.Checked;
             WranglerSettings.Instance.Save();
+        }
+
+        /// <summary>
+        /// Stop Gently button click - signals Lisbeth to stop after current action.
+        /// </summary>
+        private void btnStopGently_Click(object sender, EventArgs e)
+        {
+            if (!_controller.IsExecuting)
+            {
+                LogToUI("Nothing is currently executing.", Color.Orange);
+                return;
+            }
+
+            LogToUI("Requesting gentle stop...", Color.FromArgb(230, 126, 34));
+            btnStopGently.Enabled = false;
+            btnStopGently.Text = "Stopping...";
+
+            // Request stop - this signals Lisbeth to stop gracefully
+            _controller.RequestStopGently();
         }
 
         /// <summary>
@@ -343,6 +364,13 @@ namespace TheWrangler
         private void UpdateUIState()
         {
             btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
+
+            // Stop Gently is only enabled when executing
+            btnStopGently.Enabled = _controller.IsExecuting;
+            if (!_controller.IsExecuting)
+            {
+                btnStopGently.Text = "Stop Gently";
+            }
         }
 
         /// <summary>
