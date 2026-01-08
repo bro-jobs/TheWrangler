@@ -274,6 +274,25 @@ namespace TheWrangler
             _lisbethApi.OpenLisbethWindow();
         }
 
+        /// <summary>
+        /// Requests Lisbeth to stop gracefully after the current action.
+        /// This can be called from the UI thread - it signals but doesn't block.
+        /// </summary>
+        public void RequestStopGently()
+        {
+            if (!IsExecuting)
+            {
+                OnLogMessage("Nothing is executing to stop.");
+                return;
+            }
+
+            OnStatusChanged("Stopping gently...");
+            OnLogMessage("Requesting Lisbeth to stop gently...");
+
+            // Fire-and-forget - we just signal Lisbeth to stop
+            _lisbethApi.RequestStopGently();
+        }
+
         #endregion
 
         #region Event Helpers
