@@ -202,8 +202,7 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Run button click - queues the selected JSON for execution.
-        /// Note: The actual execution happens in the behavior tree, not here.
+        /// Run button click - queues the selected JSON and starts bot if needed.
         /// </summary>
         private void btnRun_Click(object sender, EventArgs e)
         {
@@ -226,8 +225,18 @@ namespace TheWrangler
             {
                 // Update UI to show order is queued/running
                 btnRun.Enabled = false;
-                btnRun.Text = "Queued...";
-                LogToUI("Order queued. Ensure bot is running (Start button).", Color.LightGreen);
+                btnRun.Text = "Running...";
+
+                // Auto-start the bot if it's not running
+                if (!TheWranglerBotBase.IsBotRunning)
+                {
+                    LogToUI("Starting bot...", Color.LightGreen);
+                    TheWranglerBotBase.StartBot();
+                }
+                else
+                {
+                    LogToUI("Order queued, executing...", Color.LightGreen);
+                }
             }
         }
 
