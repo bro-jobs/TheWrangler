@@ -67,6 +67,9 @@ namespace TheWrangler
             this.lblFilePath = new System.Windows.Forms.Label();
             this.btnBrowse = new System.Windows.Forms.Button();
             this.chkIgnoreHome = new System.Windows.Forms.CheckBox();
+            this.lblRemotePort = new System.Windows.Forms.Label();
+            this.txtRemotePort = new System.Windows.Forms.TextBox();
+            this.lblServerStatus = new System.Windows.Forms.Label();
             this.btnRun = new System.Windows.Forms.Button();
             this.btnStopGently = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
@@ -85,6 +88,9 @@ namespace TheWrangler
             this.pnlMain.Controls.Add(this.lblFilePath);
             this.pnlMain.Controls.Add(this.btnBrowse);
             this.pnlMain.Controls.Add(this.chkIgnoreHome);
+            this.pnlMain.Controls.Add(this.lblRemotePort);
+            this.pnlMain.Controls.Add(this.txtRemotePort);
+            this.pnlMain.Controls.Add(this.lblServerStatus);
             this.pnlMain.Controls.Add(this.btnRun);
             this.pnlMain.Controls.Add(this.btnStopGently);
             this.pnlMain.Controls.Add(this.lblStatus);
@@ -156,13 +162,46 @@ namespace TheWrangler
             this.chkIgnoreHome.CheckedChanged += new System.EventHandler(this.chkIgnoreHome_CheckedChanged);
 
             //
+            // lblRemotePort - Remote port label
+            //
+            this.lblRemotePort.AutoSize = true;
+            this.lblRemotePort.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblRemotePort.Location = new System.Drawing.Point(17, 155);
+            this.lblRemotePort.Name = "lblRemotePort";
+            this.lblRemotePort.Size = new System.Drawing.Size(88, 19);
+            this.lblRemotePort.TabIndex = 10;
+            this.lblRemotePort.Text = "Remote Port:";
+
+            //
+            // txtRemotePort - Remote port text box
+            //
+            this.txtRemotePort.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.txtRemotePort.Location = new System.Drawing.Point(115, 152);
+            this.txtRemotePort.Name = "txtRemotePort";
+            this.txtRemotePort.Size = new System.Drawing.Size(70, 25);
+            this.txtRemotePort.TabIndex = 11;
+            this.txtRemotePort.Text = "7800";
+            this.txtRemotePort.Leave += new System.EventHandler(this.txtRemotePort_Leave);
+
+            //
+            // lblServerStatus - Server status indicator
+            //
+            this.lblServerStatus.AutoSize = true;
+            this.lblServerStatus.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblServerStatus.Location = new System.Drawing.Point(195, 157);
+            this.lblServerStatus.Name = "lblServerStatus";
+            this.lblServerStatus.Size = new System.Drawing.Size(95, 15);
+            this.lblServerStatus.TabIndex = 12;
+            this.lblServerStatus.Text = "Server: Stopped";
+
+            //
             // btnRun - Main run button
             //
             this.btnRun.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
             | System.Windows.Forms.AnchorStyles.Right)));
             this.btnRun.Enabled = false;
             this.btnRun.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnRun.Location = new System.Drawing.Point(20, 160);
+            this.btnRun.Location = new System.Drawing.Point(20, 190);
             this.btnRun.Name = "btnRun";
             this.btnRun.Size = new System.Drawing.Size(280, 50);
             this.btnRun.TabIndex = 5;
@@ -176,7 +215,7 @@ namespace TheWrangler
             this.btnStopGently.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.btnStopGently.Enabled = false;
             this.btnStopGently.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnStopGently.Location = new System.Drawing.Point(310, 160);
+            this.btnStopGently.Location = new System.Drawing.Point(310, 190);
             this.btnStopGently.Name = "btnStopGently";
             this.btnStopGently.Size = new System.Drawing.Size(133, 50);
             this.btnStopGently.TabIndex = 6;
@@ -189,7 +228,7 @@ namespace TheWrangler
             //
             this.lblStatus.AutoSize = true;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.lblStatus.Location = new System.Drawing.Point(17, 220);
+            this.lblStatus.Location = new System.Drawing.Point(17, 250);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Size = new System.Drawing.Size(79, 15);
             this.lblStatus.TabIndex = 6;
@@ -203,11 +242,11 @@ namespace TheWrangler
             | System.Windows.Forms.AnchorStyles.Right)));
             this.txtLog.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.txtLog.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.txtLog.Location = new System.Drawing.Point(20, 245);
+            this.txtLog.Location = new System.Drawing.Point(20, 275);
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(423, 175);
+            this.txtLog.Size = new System.Drawing.Size(423, 145);
             this.txtLog.TabIndex = 7;
             this.txtLog.Text = "";
 
@@ -236,6 +275,9 @@ namespace TheWrangler
         private System.Windows.Forms.Label lblFilePath;
         private System.Windows.Forms.Button btnBrowse;
         private System.Windows.Forms.CheckBox chkIgnoreHome;
+        private System.Windows.Forms.Label lblRemotePort;
+        private System.Windows.Forms.TextBox txtRemotePort;
+        private System.Windows.Forms.Label lblServerStatus;
         private System.Windows.Forms.Button btnRun;
         private System.Windows.Forms.Button btnStopGently;
         private System.Windows.Forms.Label lblStatus;
