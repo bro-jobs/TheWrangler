@@ -8,7 +8,7 @@
  *
  * UI COMPONENTS:
  * - File selection panel with browse button and path display
- * - Run button to execute the selected JSON
+ * - Run button to queue the selected JSON for execution
  * - Status log area showing operation results
  * - Ignore Home checkbox option
  *
@@ -17,17 +17,23 @@
  * - Uses WranglerController for bot operations
  * - Settings are loaded/saved via WranglerSettings
  *
+ * IMPORTANT - EXECUTION FLOW:
+ * The Run button does NOT execute immediately. It queues the order:
+ * 1. User clicks Run -> QueueSelectedJson() validates and queues
+ * 2. The behavior tree (in TheWranglerBotBase) picks up the order
+ * 3. Order executes within the proper coroutine context
+ * 4. OrderCompleted event fires when done
+ *
  * NOTES FOR CLAUDE:
  * - This form runs on a separate STA thread (required for WinForms)
  * - Use Invoke() when updating UI from other threads
- * - The form communicates with the botbase via WranglerController
+ * - Orders queue, not execute directly - they run in the behavior tree
  * - Keep form logic minimal - complex logic goes in controller/API classes
  */
 
 using System;
 using System.Drawing;
 using System.IO;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using ff14bot.Helpers;
 
@@ -87,6 +93,7 @@ namespace TheWrangler
             // Set up event handlers
             _controller.StatusChanged += OnStatusChanged;
             _controller.LogMessage += OnLogMessage;
+            _controller.OrderCompleted += OnOrderCompleted;
 
             // Set form properties
             this.Text = "TheWrangler - Lisbeth Order Runner";
@@ -195,9 +202,10 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Run button click - executes the selected JSON.
+        /// Run button click - queues the selected JSON for execution.
+        /// Note: The actual execution happens in the behavior tree, not here.
         /// </summary>
-        private async void btnRun_Click(object sender, EventArgs e)
+        private void btnRun_Click(object sender, EventArgs e)
         {
             if (!WranglerSettings.Instance.HasValidJsonPath)
             {
@@ -205,31 +213,21 @@ namespace TheWrangler
                 return;
             }
 
-            // Disable button during execution
-            btnRun.Enabled = false;
-            btnRun.Text = "Running...";
+            if (_controller.IsExecuting)
+            {
+                LogToUI("An order is already executing.", Color.Orange);
+                return;
+            }
 
-            try
+            // Queue the order for execution by the behavior tree
+            bool queued = _controller.QueueSelectedJson();
+
+            if (queued)
             {
-                bool success = await _controller.RunSelectedJson();
-                if (success)
-                {
-                    LogToUI("Orders completed successfully!", Color.LightGreen);
-                }
-                else
-                {
-                    LogToUI("Orders did not complete. Check the log for details.", Color.Orange);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogToUI($"Error: {ex.Message}", Color.Red);
-            }
-            finally
-            {
-                btnRun.Enabled = true;
-                btnRun.Text = "Run";
-                UpdateUIState();
+                // Update UI to show order is queued/running
+                btnRun.Enabled = false;
+                btnRun.Text = "Queued...";
+                LogToUI("Order queued. Ensure bot is running (Start button).", Color.LightGreen);
             }
         }
 
@@ -255,6 +253,7 @@ namespace TheWrangler
             // Cleanup
             _controller.StatusChanged -= OnStatusChanged;
             _controller.LogMessage -= OnLogMessage;
+            _controller.OrderCompleted -= OnOrderCompleted;
             Instance = null;
         }
 
@@ -278,6 +277,35 @@ namespace TheWrangler
         private void OnLogMessage(object sender, string message)
         {
             LogToUI(message, Color.FromArgb(220, 220, 220));
+        }
+
+        /// <summary>
+        /// Controller order completed event.
+        /// Re-enables the Run button.
+        /// </summary>
+        private void OnOrderCompleted(object sender, bool success)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => OnOrderCompleted(sender, success)));
+                return;
+            }
+
+            // Re-enable the run button
+            btnRun.Enabled = true;
+            btnRun.Text = "Run";
+
+            // Log result
+            if (success)
+            {
+                LogToUI("Orders completed successfully!", Color.LightGreen);
+            }
+            else
+            {
+                LogToUI("Orders did not complete. Check the log for details.", Color.Orange);
+            }
+
+            UpdateUIState();
         }
 
         #endregion
@@ -305,7 +333,7 @@ namespace TheWrangler
         /// </summary>
         private void UpdateUIState()
         {
-            btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath;
+            btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
         }
 
         /// <summary>
