@@ -1,0 +1,200 @@
+#############################################################################
+################################INSTRUCTIONS#################################
+#############################################################################
+1. CREATE A NEW SNIPPET.
+2. USE THE NAME BELOW AND CLICK THE "RENAME" BUTTON.
+3. COPY THE CODE BETWEEN THE "-----" LINES INTO THE C# TAB OF THE RB CONSOLE.
+4. CLICK SAVE.
+5. CLICK RUN WHEN READY.
+#############################################################################
+
+Name: Current Zone, XYZ & Weather
+--------------------------------------------------
+ClearLog();
+Log("Zone Id: {0} | Raw Zone Id: {1} | Subzone Id: {2}",WorldManager.ZoneId,WorldManager.RawZoneId,WorldManager.SubZoneId);
+Log("Current XYZ: {0}",Core.Player.Location);
+Log("Current Weather: {0} | Current Weather Id: {1}",WorldManager.CurrentWeather,WorldManager.CurrentWeatherId);
+Log("==================================================");
+foreach(var Aetheryte in WorldManager.AetheryteIdsForZone(WorldManager.ZoneId))
+{
+Log("Current Zone Aetheryte ID: {0}",Aetheryte.Item1);
+}
+--------------------------------------------------
+
+Name: Nearby Objects (Closest at the Top)
+--------------------------------------------------
+ClearLog();
+var units = GameObjectManager.GameObjects;
+foreach(var unit in units.OrderBy(r=>r.Distance()))
+{
+Log("Name:{0}, Type:{3}, ID:{1}, Obj:{2}",unit,unit.NpcId,unit.ObjectId,unit.GetType());
+}
+Log("==================================================");
+foreach (var x in GameObjectManager.GetObjectsOfType<BattleCharacter>(true).OrderBy(r=>r.Distance()))
+{
+Log("Name: " + x.EnglishName + ", Level: " + x.ClassLevel);
+}
+--------------------------------------------------
+
+Name: Aetheryte ID List
+--------------------------------------------------
+ClearLog();
+foreach(var item in DataManager.AetheryteCache)
+{
+Log("ID: {0} | Location: {1}",item.Key,item.Value);
+}
+--------------------------------------------------
+
+Name: Current Quests
+--------------------------------------------------
+ClearLog();
+foreach(var quest in QuestLogManager.Quests())
+{
+Log(quest);
+}
+--------------------------------------------------
+
+Name: FishSpot Generator
+--------------------------------------------------
+ClearLog();
+string location = Core.Player.Location.ToString().Remove(0, 1);
+location = location.Remove(location.Length - 1, 1);
+Log("<FishSpot XYZ=\"" + location + "\" Heading=\"" + Core.Me.Heading + "\" />");
+--------------------------------------------------
+
+Name: Inventory Items
+--------------------------------------------------
+ClearLog();
+Log("==================================================");
+Log("======================GEAR========================");
+Log("==================================================");
+Log(" ");
+
+foreach(var item in InventoryManager.GetBagByInventoryBagId(ff14bot.Enums.InventoryBagId.EquippedItems).FilledSlots)
+{
+Log("Name: " + item.Item.EnglishName + "\tItemCategory: " + item.Item.EquipmentCatagory + "\tId: " + item.Item.Id);
+}
+Log(" ");
+Log("==================================================");
+Log("====================INVENTORY=====================");
+Log("==================================================");
+Log(" ");
+
+foreach(var item in ff14bot.Managers.InventoryManager.FilledSlots.Where(x => x.BagId == InventoryBagId.Bag1 || x.BagId == InventoryBagId.Bag2 || x.BagId == InventoryBagId.Bag3 || x.BagId == InventoryBagId.Bag4))
+{
+Log("Name: " + item.Item.EnglishName + "\tItemCategory: " + item.Item.EquipmentCatagory + "\tId: " + item.Item.Id);
+}
+Log(" ");
+Log("==================================================");
+Log("====================KEY ITEMS=====================");
+Log("==================================================");
+Log(" ");
+foreach(var bagslot in InventoryManager.GetBagByInventoryBagId(ff14bot.Enums.InventoryBagId.KeyItems).FilledSlots)
+{
+Log(bagslot);
+}
+--------------------------------------------------
+
+Name: Detailed Target Information (Target Something!)
+--------------------------------------------------
+ClearLog();
+GameObject s = GameObjectManager.GetObjectByNPCId(Core.Target.NpcId);
+            Log("Can Attack - " + s.CanAttack.ToString());
+            Log("Combat Reach - " + s.CombatReach.ToString());
+            Log("Current Health Percent - " + s.CurrentHealthPercent.ToString());
+            Log("English Name - " + s.EnglishName.ToString());
+            Log("Fate ID - " + s.FateId.ToString());
+            Log("Heading - " + s.Heading.ToString());
+            Log("Id Location - " + s.IdLocation.ToString());
+            Log("Is Behind - " + s.IsBehind.ToString());
+            Log("Is Fate Gone - " + s.IsFateGone.ToString());
+            Log("Is Flanking - " + s.IsFlanking.ToString());
+            Log("Is Me - " + s.IsMe.ToString());
+            Log("Is Targetable - " + s.IsTargetable.ToString());
+            Log("Is Valid - " + s.IsValid.ToString());
+            Log("Is Visble - " + s.IsVisible.ToString());
+            Log("Location - " + s.Location.ToString());
+            Log("LUA String - " + s.LuaString.ToString());
+            Log("Max Health - " + s.MaxHealth.ToString());
+            Log("Name - " + s.Name.ToString());
+            Log("NPC ID - " + s.NpcId.ToString());
+            Log("Object Id - " + s.ObjectId.ToString());
+            Log("Type - " + s.Type.ToString());
+--------------------------------------------------
+
+Name: Remote Window Open Check
+--------------------------------------------------
+ClearLog();
+Log("ColosseumRecord Open? {0}",ff14bot.RemoteWindows.ColosseumRecord.IsOpen);
+Log("ContentsFinder Open? {0}",ff14bot.RemoteWindows.ContentsFinder.IsOpen);
+Log("ContentsFinderConfirm Open? {0}",ff14bot.RemoteWindows.ContentsFinderConfirm.IsOpen);
+Log("ContentsFinderReady Open? {0}",ff14bot.RemoteWindows.ContentsFinderReady.IsOpen);
+Log("CraftingLog Open? {0}",ff14bot.RemoteWindows.CraftingLog.IsOpen);
+Log("HousingGardening Open? {0}",ff14bot.RemoteWindows.HousingGardening.IsOpen);
+Log("JournalAccept Open? {0}",ff14bot.RemoteWindows.JournalAccept.IsOpen);
+Log("JournalResult Open? {0}",ff14bot.RemoteWindows.JournalResult.IsOpen);
+Log("MaterializeDialog Open? {0}",ff14bot.RemoteWindows.MaterializeDialog.IsOpen);
+Log("Repair Open? {0}",ff14bot.RemoteWindows.Repair.IsOpen);
+Log("Request Open? {0}",ff14bot.RemoteWindows.Request.IsOpen);
+Log("SelectIconString Open? {0}",ff14bot.RemoteWindows.SelectIconString.IsOpen);
+Log("SelectString Open? {0}",ff14bot.RemoteWindows.SelectString.IsOpen);
+Log("SelectYesno Open? {0}",ff14bot.RemoteWindows.SelectYesno.IsOpen);
+Log("Synthesis Open? {0}",ff14bot.RemoteWindows.Synthesis.IsOpen);
+Log("Talk Open? {0}",ff14bot.RemoteWindows.Talk.DialogOpen);
+--------------------------------------------------
+
+Name: Weather List
+--------------------------------------------------
+ClearLog();
+foreach(var item in WorldManager.WeatherDictionary)
+{
+Log("ID: {0} | Type: {1}",item.Key,item.Value);
+}
+--------------------------------------------------
+
+Name: Get Todo Arguments (XXXXX = Quest ID)
+--------------------------------------------------
+ClearLog();
+Log(QuestLogManager.GetQuestById(XXXXX).GetTodoArgs(0));
+Log(QuestLogManager.GetQuestById(XXXXX).GetTodoArgs(1));
+--------------------------------------------------
+
+Name: Quest Arguments (XXXXX = Quest ID)
+--------------------------------------------------
+ClearLog();
+Log(ff14bot.NeoProfiles.ConditionParser.IsQuestAcceptQualified(XXXXX));
+Log(ff14bot.NeoProfiles.ConditionParser.IsQuestCompleted(XXXXX));
+Log(ff14bot.NeoProfiles.ConditionParser.HasQuest(XXXXX));
+Log(ff14bot.NeoProfiles.ConditionParser.GetQuestStep(XXXXX));
+Log(ff14bot.NeoProfiles.ConditionParser.GetQuestById(XXXXX).QuestI8AH);
+--------------------------------------------------
+
+Name: Active FATE Properties
+--------------------------------------------------
+ClearLog();
+foreach (var fate in FateManager.ActiveFates)
+{
+Log("IsValid: " + fate.IsValid + " | Level: " + fate.Level + " | Status: " + fate.Status + " | " + fate.Name);
+}
+--------------------------------------------------
+
+Name: Distance Check
+--------------------------------------------------
+ClearLog();
+Log(Core.Me.Location.Distance3D(new Vector3(0.0f, 0.0f, 0.0f)));
+--------------------------------------------------
+
+Name: Current Actions
+--------------------------------------------------
+ClearLog();
+foreach(var action in Actionmanager.CurrentActions) { Log(action); }
+--------------------------------------------------
+
+Name: Open Windows
+--------------------------------------------------
+ClearLog();
+foreach (var window in RaptureAtkUnitManager.Controls)
+{
+    Log(window);
+}
+--------------------------------------------------
