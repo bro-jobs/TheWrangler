@@ -1,0 +1,12 @@
+[submodule "BotBases/LlamaUtilities"]
+	path = BotBases/LlamaUtilities
+	url = https://github.com/nt153133/LlamaUtilities.git
+[submodule "Plugins/LlamaPlugins"]
+	path = Plugins/LlamaPlugins
+	url = https://github.com/nt153133/Llamaplugins.git
+[submodule "Plugins/PandaPlugins"]
+	path = Plugins/PandaPlugins
+	url = https://github.com/DomesticWarlord/PandaPlugins.git
+[submodule "Quest Behaviors/__LlamaLibrary"]
+	path = Quest Behaviors/__LlamaLibrary
+	url = https://github.com/nt153133/__LlamaLibrary.git
