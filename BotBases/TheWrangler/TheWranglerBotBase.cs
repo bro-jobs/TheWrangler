@@ -7,14 +7,15 @@
  * RebornBuddy's bot framework, providing the required interface for the bot
  * to be recognized and run.
  *
- * IMPORTANT - COROUTINE YIELDING:
- * Lisbeth needs coroutine yields to execute. We must yield while waiting
- * for Lisbeth's task to complete, otherwise Lisbeth won't get CPU time.
+ * IMPORTANT - COROUTINE EXECUTION:
+ * Lisbeth's ExecuteOrders must be awaited directly in the coroutine.
+ * We can't create the task separately and poll - that causes
+ * "multiple coroutine tasks in a single tick" error.
  *
  * NOTES FOR CLAUDE:
- * - Must yield (Coroutine.Yield()) while waiting for external tasks
- * - Use TreeRoot.Start()/Stop() to control bot from UI
- * - Reset controller state on Stop()
+ * - Await Lisbeth's task directly in ActionRunCoroutine
+ * - Don't try to fire-and-forget or poll
+ * - The await handles all the coroutine yielding internally
  */
 
 using System;
@@ -139,53 +140,63 @@ namespace TheWrangler
         /// Creates the main behavior tree.
         ///
         /// FLOW:
-        /// 1. If pending order -> Start it and wait (yielding)
-        /// 2. If task running -> Keep yielding until done
+        /// 1. If pending order -> Execute it (await Lisbeth directly)
+        /// 2. If executing -> Keep waiting (shouldn't happen, but safety check)
         /// 3. Otherwise -> Idle
         /// </summary>
         private Composite CreateRoot()
         {
             return new PrioritySelector(
-                // Handle pending or running orders
+                // Execute pending order - await Lisbeth directly in coroutine
                 new Decorator(
-                    ctx => _controller.HasPendingOrder || _controller.IsTaskRunning,
-                    new ActionRunCoroutine(ctx => HandleOrderExecutionAsync())
+                    ctx => _controller.HasPendingOrder,
+                    new ActionRunCoroutine(ctx => ExecuteOrderAsync())
                 ),
-                // Idle - yield to the system
+                // Safety: if still marked as executing, wait
+                new Decorator(
+                    ctx => _controller.IsExecuting,
+                    new ActionRunCoroutine(ctx => WaitAsync())
+                ),
+                // Idle
                 new ActionRunCoroutine(ctx => IdleAsync())
             );
         }
 
         /// <summary>
-        /// Handles order execution with proper coroutine yielding.
-        /// Lisbeth needs yields to get execution time.
+        /// Executes the pending order by awaiting Lisbeth directly.
+        /// The await handles all coroutine integration automatically.
         /// </summary>
-        private async Task<bool> HandleOrderExecutionAsync()
+        private async Task<bool> ExecuteOrderAsync()
         {
-            // Start pending order if we have one
-            if (_controller.HasPendingOrder)
+            Log("Executing pending order...");
+
+            // Get order data (clears pending, sets executing)
+            var (json, ignoreHome) = _controller.GetPendingOrderData();
+
+            try
             {
-                Log("Starting pending order...");
-                _controller.StartPendingOrder();
+                // Await Lisbeth directly - this is the key!
+                // The coroutine system handles yielding internally
+                bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+
+                _controller.OnOrderExecutionComplete(result);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error executing order: {ex.Message}");
+                _controller.OnOrderExecutionError(ex.Message);
             }
 
-            // Yield while task is running - this gives Lisbeth CPU time
-            while (_controller.IsTaskRunning)
-            {
-                // Check if task completed
-                if (_controller.CheckTaskStatus())
-                {
-                    // Still running, yield to let Lisbeth work
-                    await Coroutine.Yield();
-                }
-                else
-                {
-                    // Task completed
-                    break;
-                }
-            }
+            return false; // Allow tree to re-evaluate
+        }
 
-            return false; // Allow tree to continue
+        /// <summary>
+        /// Wait coroutine - just yields.
+        /// </summary>
+        private async Task<bool> WaitAsync()
+        {
+            await Coroutine.Yield();
+            return false;
         }
 
         /// <summary>
