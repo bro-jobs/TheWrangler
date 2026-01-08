@@ -71,6 +71,10 @@ namespace TheWrangler
             LastBrowseDirectory = "";
             WindowX = -1;
             WindowY = -1;
+
+            // Remote server defaults
+            RemoteServerEnabled = true;
+            RemoteServerPort = 7800;
         }
 
         #endregion
@@ -104,6 +108,18 @@ namespace TheWrangler
         /// Window Y position for form state persistence.
         /// </summary>
         public int WindowY { get; set; }
+
+        /// <summary>
+        /// Whether the remote control HTTP server is enabled.
+        /// When enabled, TheWrangler can be controlled by the master program.
+        /// </summary>
+        public bool RemoteServerEnabled { get; set; }
+
+        /// <summary>
+        /// Port for the remote control HTTP server.
+        /// Default is 7800. Each instance should use a unique port.
+        /// </summary>
+        public int RemoteServerPort { get; set; }
 
         #endregion
 

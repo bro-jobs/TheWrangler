@@ -61,6 +61,7 @@ namespace TheWrangler
         private WranglerController _controller;
         private Thread _guiThread;
         private WranglerForm _form;
+        private RemoteServer _remoteServer;
 
         #endregion
 
@@ -125,21 +126,38 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot starts running.
-        /// Initializes the Lisbeth API connection.
+        /// Initializes the Lisbeth API connection and remote server.
         /// </summary>
         public override void Start()
         {
             Log("TheWrangler started.");
             _controller.Initialize();
+
+            // Start remote server if enabled
+            var settings = WranglerSettings.Instance;
+            if (settings.RemoteServerEnabled)
+            {
+                _remoteServer = new RemoteServer(_controller, settings.RemoteServerPort);
+                _remoteServer.Start();
+            }
         }
 
         /// <summary>
         /// Called when the bot stops running.
-        /// Reset controller state and notify UI.
+        /// Reset controller state, notify UI, and stop remote server.
         /// </summary>
         public override void Stop()
         {
             Log("TheWrangler stopped.");
+
+            // Stop remote server if running
+            if (_remoteServer != null)
+            {
+                _remoteServer.Stop();
+                _remoteServer.Dispose();
+                _remoteServer = null;
+            }
+
             _controller.OnBotStopped();
         }
 
