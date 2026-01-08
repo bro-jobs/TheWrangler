@@ -214,13 +214,22 @@ namespace TheWrangler
             try
             {
                 Log("Starting Lisbeth order execution...");
-                // Return the task directly - don't await it here
-                // The caller will poll IsCompleted to check status
-                return (Task<bool>)_orderMethod.Invoke(_lisbeth, new object[] { json, ignoreHome });
+                Log($"DEBUG: _lisbeth is null: {_lisbeth == null}");
+                Log($"DEBUG: _orderMethod is null: {_orderMethod == null}");
+
+                var result = _orderMethod.Invoke(_lisbeth, new object[] { json, ignoreHome });
+                Log($"DEBUG: Invoke returned null: {result == null}");
+
+                var task = (Task<bool>)result;
+                Log($"DEBUG: Task created, Status: {task.Status}");
+
+                return task;
             }
             catch (Exception ex)
             {
                 Log($"Error starting orders: {ex.Message}");
+                Log($"DEBUG: Exception type: {ex.GetType().FullName}");
+                Log($"DEBUG: Stack trace: {ex.StackTrace}");
                 return Task.FromResult(false);
             }
         }
