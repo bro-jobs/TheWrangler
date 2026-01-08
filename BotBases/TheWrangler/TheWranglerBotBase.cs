@@ -19,21 +19,27 @@
  *                          v
  *                    WranglerForm (UI)
  *
+ * IMPORTANT - COROUTINE CONTEXT:
+ * Lisbeth's ExecuteOrders MUST be called from within a coroutine context.
+ * The behavior tree's Root handles this by checking for pending orders
+ * and executing them via ActionRunCoroutine.
+ *
  * HOW IT WORKS:
  * 1. User selects "TheWrangler" in RebornBuddy's bot dropdown
  * 2. Clicking "Settings" opens WranglerForm
- * 3. User selects a JSON file and clicks "Run"
- * 4. TheWrangler calls Lisbeth API to execute the orders
+ * 3. User selects a JSON file and clicks "Run" (queues the order)
+ * 4. User clicks "Start" in RebornBuddy (or bot is already running)
+ * 5. The behavior tree picks up the pending order and executes it
  *
  * NOTES FOR CLAUDE:
- * - The Root behavior runs continuously when the bot is active
- * - Currently Root is a no-op since orders run through the UI
- * - Future enhancement: Run orders automatically when bot starts
+ * - Orders MUST execute in the behavior tree, not from UI thread
  * - WinForms runs on a separate STA thread (see ToggleUI method)
+ * - The controller is shared between UI and behavior tree
  */
 
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Media;
 using ff14bot.AClasses;
@@ -94,7 +100,7 @@ namespace TheWrangler
 
         /// <summary>
         /// The behavior tree that runs when the bot is active.
-        /// Currently idles - actual work is triggered via UI.
+        /// Checks for pending orders and executes them in the proper coroutine context.
         /// </summary>
         public override Composite Root => _root ?? (_root = CreateRoot());
 
@@ -151,29 +157,48 @@ namespace TheWrangler
         /// Creates the main behavior tree.
         ///
         /// ARCHITECTURE NOTE:
-        /// Currently this tree just idles because TheWrangler is UI-driven.
-        /// Users click "Run" in the form to execute orders.
+        /// The behavior tree checks for pending orders from the controller.
+        /// When found, it executes them within the proper coroutine context.
+        /// This is necessary because Lisbeth's ExecuteOrders cannot be called
+        /// from a UI thread - it must run within the behavior tree.
         ///
-        /// FUTURE ENHANCEMENT IDEAS:
-        /// - Add auto-run mode that executes orders on start
-        /// - Add scheduling/repeat functionality
-        /// - Add multiple order queue support
+        /// FLOW:
+        /// 1. Check if controller has pending order
+        /// 2. If yes, execute via ActionRunCoroutine (proper context)
+        /// 3. If no, idle and wait for next tick
         /// </summary>
         private Composite CreateRoot()
         {
             return new PrioritySelector(
-                // Currently just a placeholder - orders run through UI
+                // Execute pending orders when available
                 new Decorator(
-                    ctx => false, // Never runs
-                    new TreeSharp.Action(ctx => RunStatus.Success)
+                    ctx => _controller.HasPendingOrder,
+                    new ActionRunCoroutine(ctx => ExecutePendingOrderAsync())
                 ),
-                // Idle action - keeps the bot "running" without doing anything
-                new TreeSharp.Action(ctx =>
-                {
-                    // Bot is idle - waiting for user to trigger via UI
-                    return RunStatus.Success;
-                })
+                // Idle when no orders - keeps the bot "running"
+                new ActionRunCoroutine(ctx => IdleAsync())
             );
+        }
+
+        /// <summary>
+        /// Executes a pending order from the controller.
+        /// This runs within the behavior tree's coroutine context.
+        /// </summary>
+        private async Task<bool> ExecutePendingOrderAsync()
+        {
+            Log("Executing pending order...");
+            await _controller.ExecutePendingOrder();
+            return true;
+        }
+
+        /// <summary>
+        /// Idle coroutine - just waits a bit to not hog CPU.
+        /// </summary>
+        private async Task<bool> IdleAsync()
+        {
+            // Small delay to prevent busy-waiting
+            await Task.Delay(100);
+            return true;
         }
 
         #endregion

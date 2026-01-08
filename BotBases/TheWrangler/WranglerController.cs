@@ -8,21 +8,26 @@
  *
  * RESPONSIBILITIES:
  * - Coordinate JSON loading and validation
- * - Execute Lisbeth orders via LisbethApi
+ * - Queue orders for execution by the behavior tree
  * - Report status changes to the UI
  * - Handle errors gracefully
  *
  * ARCHITECTURE:
- * WranglerForm <--events--> WranglerController <--calls--> LisbethApi
+ * WranglerForm --> WranglerController --> PendingOrder
+ *                                              |
+ *                                              v
+ * TheWranglerBotBase (behavior tree) --> LisbethApi
  *
- * EVENTS:
- * - StatusChanged: Fired when operation status changes
- * - LogMessage: Fired when a log message should be displayed
+ * IMPORTANT - COROUTINE CONTEXT:
+ * Lisbeth's ExecuteOrders MUST be called from within the bot's coroutine context
+ * (behavior tree). Calling it from the UI thread will fail. Therefore:
+ * 1. UI calls QueueOrder() to set up the pending order
+ * 2. The behavior tree's Root checks for pending orders each tick
+ * 3. When found, it executes within the proper coroutine context
  *
  * NOTES FOR CLAUDE:
  * - This is the "brain" of TheWrangler
- * - All coordination between UI and API goes through here
- * - The controller doesn't know about specific UI controls
+ * - ExecuteOrders CANNOT be called from UI - must go through behavior tree
  * - Uses events to communicate back to the UI (loose coupling)
  */
 
@@ -56,6 +61,11 @@ namespace TheWrangler
         /// </summary>
         public event EventHandler<string> LogMessage;
 
+        /// <summary>
+        /// Fired when order execution completes.
+        /// </summary>
+        public event EventHandler<bool> OrderCompleted;
+
         #endregion
 
         #region Properties
@@ -69,6 +79,21 @@ namespace TheWrangler
         /// Gets the current Lisbeth API status.
         /// </summary>
         public string ApiStatus => _lisbethApi.StatusMessage;
+
+        /// <summary>
+        /// The pending JSON order to execute (set by UI, consumed by behavior tree).
+        /// </summary>
+        public string PendingOrderJson { get; private set; }
+
+        /// <summary>
+        /// Returns true if there's a pending order waiting to execute.
+        /// </summary>
+        public bool HasPendingOrder => !string.IsNullOrEmpty(PendingOrderJson);
+
+        /// <summary>
+        /// Returns true if an order is currently executing.
+        /// </summary>
+        public bool IsExecuting { get; private set; }
 
         #endregion
 
@@ -117,10 +142,11 @@ namespace TheWrangler
         #region Operations
 
         /// <summary>
-        /// Runs the currently selected JSON file through Lisbeth.
+        /// Queues the selected JSON file for execution.
+        /// The actual execution happens in the behavior tree via ExecutePendingOrder().
         /// </summary>
-        /// <returns>True if orders completed successfully</returns>
-        public async Task<bool> RunSelectedJson()
+        /// <returns>True if order was queued successfully</returns>
+        public bool QueueSelectedJson()
         {
             var settings = WranglerSettings.Instance;
 
@@ -128,6 +154,12 @@ namespace TheWrangler
             if (!settings.HasValidJsonPath)
             {
                 OnLogMessage("Error: No JSON file selected.");
+                return false;
+            }
+
+            if (IsExecuting)
+            {
+                OnLogMessage("Error: An order is already executing.");
                 return false;
             }
 
@@ -166,28 +198,76 @@ namespace TheWrangler
                 }
             }
 
-            // Execute orders
+            // Queue the order for execution by the behavior tree
+            PendingOrderJson = json;
+            OnStatusChanged("Order queued - Start the bot to execute");
+            OnLogMessage("Order queued. Start the bot (or it will execute on next tick if running).");
+
+            return true;
+        }
+
+        /// <summary>
+        /// Executes the pending order. MUST be called from within the behavior tree context.
+        /// This is called by TheWranglerBotBase.Root during the bot tick.
+        /// </summary>
+        /// <returns>True if execution succeeded</returns>
+        public async Task<bool> ExecutePendingOrder()
+        {
+            if (!HasPendingOrder)
+            {
+                return false;
+            }
+
+            var json = PendingOrderJson;
+            var ignoreHome = WranglerSettings.Instance.IgnoreHome;
+
+            // Clear the pending order immediately
+            PendingOrderJson = null;
+            IsExecuting = true;
+
             try
             {
                 OnStatusChanged("Running orders...");
                 OnLogMessage("Executing Lisbeth orders...");
 
-                bool result = await _lisbethApi.ExecuteOrders(json, settings.IgnoreHome);
+                bool result = await _lisbethApi.ExecuteOrders(json, ignoreHome);
 
                 OnStatusChanged(result ? "Completed" : "Did not complete");
+                OnLogMessage(result ? "Orders completed successfully!" : "Orders did not complete.");
+                OnOrderCompleted(result);
+
                 return result;
             }
             catch (Exception ex)
             {
                 OnStatusChanged("Error");
                 OnLogMessage($"Error executing orders: {ex.Message}");
-                Log($"Exception in RunSelectedJson: {ex}");
+                Log($"Exception in ExecutePendingOrder: {ex}");
+                OnOrderCompleted(false);
                 return false;
+            }
+            finally
+            {
+                IsExecuting = false;
+            }
+        }
+
+        /// <summary>
+        /// Cancels any pending (not yet started) order.
+        /// </summary>
+        public void CancelPendingOrder()
+        {
+            if (HasPendingOrder)
+            {
+                PendingOrderJson = null;
+                OnStatusChanged("Cancelled");
+                OnLogMessage("Pending order cancelled.");
             }
         }
 
         /// <summary>
         /// Stops current Lisbeth operations gracefully.
+        /// Note: This should be called from UI - StopGently might work outside coroutine.
         /// </summary>
         public async Task StopCurrentOperation()
         {
@@ -232,6 +312,14 @@ namespace TheWrangler
         {
             LogMessage?.Invoke(this, message);
             Log(message);
+        }
+
+        /// <summary>
+        /// Raises the OrderCompleted event.
+        /// </summary>
+        protected void OnOrderCompleted(bool success)
+        {
+            OrderCompleted?.Invoke(this, success);
         }
 
         /// <summary>
