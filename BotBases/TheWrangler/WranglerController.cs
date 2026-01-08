@@ -309,6 +309,19 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Called when the bot stops. Resets state and notifies UI.
+        /// </summary>
+        public void OnBotStopped()
+        {
+            // Clear any pending/running state
+            PendingOrderJson = null;
+            _runningTask = null;
+
+            OnStatusChanged("Bot stopped");
+            OnOrderCompleted(false); // This resets the UI button
+        }
+
+        /// <summary>
         /// Opens the Lisbeth configuration window.
         /// </summary>
         public void OpenLisbethWindow()

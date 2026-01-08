@@ -7,19 +7,14 @@
  * RebornBuddy's bot framework, providing the required interface for the bot
  * to be recognized and run.
  *
- * IMPORTANT - TASK POLLING PATTERN:
- * RebornBuddy's coroutine system can't await external tasks.
- * Instead, we use a polling pattern:
- * 1. Start task (fire and forget)
- * 2. Each tick, check if task is completed
- * 3. When done, process result
- *
- * This approach works because we're not awaiting - we just check status.
+ * IMPORTANT - COROUTINE YIELDING:
+ * Lisbeth needs coroutine yields to execute. We must yield while waiting
+ * for Lisbeth's task to complete, otherwise Lisbeth won't get CPU time.
  *
  * NOTES FOR CLAUDE:
- * - DON'T await external tasks - they break the coroutine system
- * - Use polling pattern: start task, check IsCompleted each tick
- * - Use Coroutine.Yield() for idle, NOT Task.Delay()
+ * - Must yield (Coroutine.Yield()) while waiting for external tasks
+ * - Use TreeRoot.Start()/Stop() to control bot from UI
+ * - Reset controller state on Stop()
  */
 
 using System;
@@ -28,6 +23,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Media;
 using Buddy.Coroutines;
+using ff14bot;
 using ff14bot.AClasses;
 using ff14bot.Behavior;
 using ff14bot.Helpers;
@@ -86,7 +82,6 @@ namespace TheWrangler
 
         /// <summary>
         /// The behavior tree that runs when the bot is active.
-        /// Uses polling pattern for task management.
         /// </summary>
         public override Composite Root => _root ?? (_root = CreateRoot());
 
@@ -128,11 +123,12 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot stops running.
-        /// Cleanup any resources.
+        /// Reset controller state and notify UI.
         /// </summary>
         public override void Stop()
         {
             Log("TheWrangler stopped.");
+            _controller.OnBotStopped();
         }
 
         #endregion
@@ -142,33 +138,18 @@ namespace TheWrangler
         /// <summary>
         /// Creates the main behavior tree.
         ///
-        /// POLLING PATTERN:
-        /// 1. If pending order exists -> Start it (sync, no await)
-        /// 2. If task is running -> Check status (sync, no await)
-        /// 3. Otherwise -> Yield and wait
+        /// FLOW:
+        /// 1. If pending order -> Start it and wait (yielding)
+        /// 2. If task running -> Keep yielding until done
+        /// 3. Otherwise -> Idle
         /// </summary>
         private Composite CreateRoot()
         {
             return new PrioritySelector(
-                // Start pending order if available
+                // Handle pending or running orders
                 new Decorator(
-                    ctx => _controller.HasPendingOrder,
-                    new TreeSharp.Action(ctx =>
-                    {
-                        Log("Starting pending order...");
-                        _controller.StartPendingOrder();
-                        return RunStatus.Success;
-                    })
-                ),
-                // Check running task status
-                new Decorator(
-                    ctx => _controller.IsTaskRunning,
-                    new TreeSharp.Action(ctx =>
-                    {
-                        // Check if task completed this tick
-                        _controller.CheckTaskStatus();
-                        return RunStatus.Success;
-                    })
+                    ctx => _controller.HasPendingOrder || _controller.IsTaskRunning,
+                    new ActionRunCoroutine(ctx => HandleOrderExecutionAsync())
                 ),
                 // Idle - yield to the system
                 new ActionRunCoroutine(ctx => IdleAsync())
@@ -176,8 +157,39 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Handles order execution with proper coroutine yielding.
+        /// Lisbeth needs yields to get execution time.
+        /// </summary>
+        private async Task<bool> HandleOrderExecutionAsync()
+        {
+            // Start pending order if we have one
+            if (_controller.HasPendingOrder)
+            {
+                Log("Starting pending order...");
+                _controller.StartPendingOrder();
+            }
+
+            // Yield while task is running - this gives Lisbeth CPU time
+            while (_controller.IsTaskRunning)
+            {
+                // Check if task completed
+                if (_controller.CheckTaskStatus())
+                {
+                    // Still running, yield to let Lisbeth work
+                    await Coroutine.Yield();
+                }
+                else
+                {
+                    // Task completed
+                    break;
+                }
+            }
+
+            return false; // Allow tree to continue
+        }
+
+        /// <summary>
         /// Idle coroutine - yields to the coroutine system.
-        /// IMPORTANT: Use Coroutine.Yield(), NOT Task.Delay()!
         /// </summary>
         private async Task<bool> IdleAsync()
         {
@@ -248,6 +260,37 @@ namespace TheWrangler
                 }
             }
         }
+
+        #endregion
+
+        #region Static Methods for UI
+
+        /// <summary>
+        /// Starts the bot. Can be called from UI.
+        /// </summary>
+        public static void StartBot()
+        {
+            if (!TreeRoot.IsRunning)
+            {
+                TreeRoot.Start();
+            }
+        }
+
+        /// <summary>
+        /// Stops the bot. Can be called from UI.
+        /// </summary>
+        public static void StopBot()
+        {
+            if (TreeRoot.IsRunning)
+            {
+                TreeRoot.Stop();
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the bot is currently running.
+        /// </summary>
+        public static bool IsBotRunning => TreeRoot.IsRunning;
 
         #endregion
 

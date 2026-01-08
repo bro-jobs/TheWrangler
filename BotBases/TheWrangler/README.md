@@ -115,18 +115,48 @@ Required for RebornBuddy integration:
 - `RequiresProfile`: False if bot doesn't need OrderBot profiles
 
 #### 4. Settings Persistence
-Use `JsonSettings` base class for automatic JSON serialization:
+For BotBases, use a self-contained settings class (NOT `JsonSettings` which may not compile):
 ```csharp
-public class WranglerSettings : JsonSettings
+public class WranglerSettings
 {
-    public static WranglerSettings Instance { get; } = new WranglerSettings();
+    private static WranglerSettings _instance;
+    public static WranglerSettings Instance => _instance ?? (_instance = Load());
 
-    private WranglerSettings() : base(GetSettingsFilePath("Global", "TheWrangler.json")) { }
-
-    [Setting]
     public string SomeSetting { get; set; }
+
+    public void Save() => File.WriteAllText(path, JsonConvert.SerializeObject(this));
+    private static WranglerSettings Load() => JsonConvert.DeserializeObject<WranglerSettings>(File.ReadAllText(path));
 }
 ```
+
+#### 5. CRITICAL - Coroutine System
+RebornBuddy uses `Buddy.Coroutines` which has strict rules:
+
+**DON'T:**
+- Await external Tasks directly (throws "No continuation was queued" error)
+- Use `Task.Delay()` in behavior trees
+
+**DO:**
+- Use `Coroutine.Yield()` to yield control
+- Use polling pattern for external tasks:
+  ```csharp
+  // Start task without awaiting
+  _task = ExternalApi.DoSomethingAsync();
+
+  // In behavior tree, yield while waiting
+  while (!_task.IsCompleted)
+  {
+      await Coroutine.Yield();  // Gives external code CPU time
+  }
+
+  // Process result
+  var result = _task.Result;
+  ```
+
+**Why this matters:**
+Lisbeth (and other bots) need coroutine yields to execute. If you just poll
+`Task.IsCompleted` without yielding, the external code never gets CPU time.
+You MUST yield while waiting for external tasks to complete.
 
 ---
 
