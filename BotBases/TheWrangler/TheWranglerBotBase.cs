@@ -198,13 +198,24 @@ namespace TheWrangler
             {
                 // Await Lisbeth directly - this is the key!
                 // Lisbeth's ExecuteOrders is coroutine-compatible.
+                Log("DEBUG: About to call ExecuteOrdersAsync...");
                 bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+                Log($"DEBUG: ExecuteOrdersAsync returned: {result}");
 
                 _controller.OnOrderExecutionComplete(result);
             }
             catch (Exception ex)
             {
+                // Log full exception details for debugging
                 Log($"Error executing order: {ex.Message}");
+                Log($"Exception type: {ex.GetType().FullName}");
+                Log($"Stack trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Log($"Inner exception: {ex.InnerException.Message}");
+                    Log($"Inner stack trace: {ex.InnerException.StackTrace}");
+                }
+                Logging.WriteException(ex);
                 _controller.OnOrderExecutionError(ex.Message);
             }
         }
