@@ -104,10 +104,16 @@ namespace TheWrangler
 
         /// <summary>
         /// Initializes TheWrangler BotBase.
+        /// Starts the remote server immediately so it's available even before bot starts.
         /// </summary>
         public TheWranglerBotBase()
         {
             _controller = new WranglerController();
+
+            // Start remote server immediately if enabled
+            // This allows remote control even when bot isn't running
+            StartRemoteServer();
+
             Log("TheWrangler BotBase initialized.");
         }
 
@@ -126,38 +132,21 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot starts running.
-        /// Initializes the Lisbeth API connection and remote server.
+        /// Initializes the Lisbeth API connection.
         /// </summary>
         public override void Start()
         {
             Log("TheWrangler started.");
             _controller.Initialize();
-
-            // Start remote server if enabled
-            var settings = WranglerSettings.Instance;
-            if (settings.RemoteServerEnabled)
-            {
-                _remoteServer = new RemoteServer(_controller, settings.RemoteServerPort);
-                _remoteServer.Start();
-            }
         }
 
         /// <summary>
         /// Called when the bot stops running.
-        /// Reset controller state, notify UI, and stop remote server.
+        /// Reset controller state and notify UI.
         /// </summary>
         public override void Stop()
         {
             Log("TheWrangler stopped.");
-
-            // Stop remote server if running
-            if (_remoteServer != null)
-            {
-                _remoteServer.Stop();
-                _remoteServer.Dispose();
-                _remoteServer = null;
-            }
-
             _controller.OnBotStopped();
         }
 
@@ -332,6 +321,70 @@ namespace TheWrangler
         /// Returns true if the bot is currently running.
         /// </summary>
         public static bool IsBotRunning => TreeRoot.IsRunning;
+
+        /// <summary>
+        /// Current instance of the BotBase (for static access).
+        /// </summary>
+        public static TheWranglerBotBase Instance { get; private set; }
+
+        #endregion
+
+        #region Remote Server
+
+        /// <summary>
+        /// Starts the remote server if enabled in settings.
+        /// </summary>
+        private void StartRemoteServer()
+        {
+            Instance = this; // Store instance for static access
+
+            var settings = WranglerSettings.Instance;
+            if (settings.RemoteServerEnabled)
+            {
+                try
+                {
+                    _remoteServer = new RemoteServer(_controller, settings.RemoteServerPort);
+                    _remoteServer.Start();
+                }
+                catch (Exception ex)
+                {
+                    Log($"Failed to start remote server: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stops the remote server if running.
+        /// </summary>
+        private void StopRemoteServer()
+        {
+            if (_remoteServer != null)
+            {
+                _remoteServer.Stop();
+                _remoteServer.Dispose();
+                _remoteServer = null;
+            }
+        }
+
+        /// <summary>
+        /// Restarts the remote server with current settings.
+        /// Called from UI when port is changed.
+        /// </summary>
+        public void RestartRemoteServer()
+        {
+            StopRemoteServer();
+            StartRemoteServer();
+        }
+
+        /// <summary>
+        /// Returns true if the remote server is currently running.
+        /// </summary>
+        public bool IsRemoteServerRunning => _remoteServer?.IsRunning ?? false;
+
+        /// <summary>
+        /// Gets the current remote server port.
+        /// </summary>
+        public int RemoteServerPort => _remoteServer?.Port ?? 0;
 
         #endregion
 

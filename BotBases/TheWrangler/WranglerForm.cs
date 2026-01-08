@@ -128,6 +128,13 @@ namespace TheWrangler
             // Style checkbox
             chkIgnoreHome.ForeColor = Color.FromArgb(200, 200, 200);
 
+            // Style remote port controls
+            lblRemotePort.ForeColor = Color.FromArgb(200, 200, 200);
+            txtRemotePort.BackColor = Color.FromArgb(60, 60, 60);
+            txtRemotePort.ForeColor = Color.FromArgb(220, 220, 220);
+            txtRemotePort.BorderStyle = BorderStyle.FixedSingle;
+            lblServerStatus.ForeColor = Color.FromArgb(150, 150, 150);
+
             // Style log area
             txtLog.BackColor = Color.FromArgb(30, 30, 30);
             txtLog.ForeColor = Color.FromArgb(220, 220, 220);
@@ -164,6 +171,12 @@ namespace TheWrangler
 
             // Restore checkbox state
             chkIgnoreHome.Checked = settings.IgnoreHome;
+
+            // Restore remote port
+            txtRemotePort.Text = settings.RemoteServerPort.ToString();
+
+            // Update server status display
+            UpdateServerStatus();
 
             // Restore window position if valid
             if (settings.WindowX >= 0 && settings.WindowY >= 0)
@@ -271,6 +284,38 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Remote port text box lost focus - validates and applies port change.
+        /// </summary>
+        private void txtRemotePort_Leave(object sender, EventArgs e)
+        {
+            if (int.TryParse(txtRemotePort.Text, out int port) && port >= 1 && port <= 65535)
+            {
+                var settings = WranglerSettings.Instance;
+
+                // Only restart if port actually changed
+                if (settings.RemoteServerPort != port)
+                {
+                    settings.RemoteServerPort = port;
+                    settings.Save();
+
+                    // Restart the remote server with new port
+                    if (TheWranglerBotBase.Instance != null)
+                    {
+                        LogToUI($"Restarting remote server on port {port}...", Color.LightBlue);
+                        TheWranglerBotBase.Instance.RestartRemoteServer();
+                        UpdateServerStatus();
+                    }
+                }
+            }
+            else
+            {
+                // Invalid port - reset to current setting
+                LogToUI("Invalid port number. Using previous value.", Color.Orange);
+                txtRemotePort.Text = WranglerSettings.Instance.RemoteServerPort.ToString();
+            }
+        }
+
+        /// <summary>
         /// Form closing - saves settings.
         /// </summary>
         private void WranglerForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -370,6 +415,30 @@ namespace TheWrangler
             if (!_controller.IsExecuting)
             {
                 btnStopGently.Text = "Stop Gently";
+            }
+        }
+
+        /// <summary>
+        /// Updates the server status display.
+        /// </summary>
+        private void UpdateServerStatus()
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(UpdateServerStatus));
+                return;
+            }
+
+            var instance = TheWranglerBotBase.Instance;
+            if (instance != null && instance.IsRemoteServerRunning)
+            {
+                lblServerStatus.Text = $"Server: Running (:{instance.RemoteServerPort})";
+                lblServerStatus.ForeColor = Color.FromArgb(46, 204, 113); // Green
+            }
+            else
+            {
+                lblServerStatus.Text = "Server: Stopped";
+                lblServerStatus.ForeColor = Color.FromArgb(150, 150, 150); // Gray
             }
         }
 
