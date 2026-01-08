@@ -7,15 +7,26 @@
  * RebornBuddy's bot framework, providing the required interface for the bot
  * to be recognized and run.
  *
- * IMPORTANT - COROUTINE EXECUTION:
- * Lisbeth's ExecuteOrders must be awaited directly in the coroutine.
- * We can't create the task separately and poll - that causes
- * "multiple coroutine tasks in a single tick" error.
+ * CRITICAL - BEHAVIOR TREE STRUCTURE:
+ * Use a SINGLE ActionRunCoroutine that handles all states internally.
+ * Do NOT use multiple Decorators with conditions that change during execution!
+ *
+ * BAD PATTERN (causes coroutine orphaning):
+ *   new PrioritySelector(
+ *       new Decorator(ctx => HasPendingOrder, new ActionRunCoroutine(...)),
+ *       new Decorator(ctx => IsExecuting, new ActionRunCoroutine(...))
+ *   );
+ * When HasPendingOrder becomes false, the tree switches to the second Decorator,
+ * potentially orphaning the running coroutine.
+ *
+ * GOOD PATTERN (used here):
+ *   return new ActionRunCoroutine(ctx => MainLoopAsync());
+ * Single coroutine checks state internally and awaits Lisbeth directly.
  *
  * NOTES FOR CLAUDE:
- * - Await Lisbeth's task directly in ActionRunCoroutine
- * - Don't try to fire-and-forget or poll
- * - The await handles all the coroutine yielding internally
+ * - Use single ActionRunCoroutine with internal state checks
+ * - Await Lisbeth's task directly (it's coroutine-compatible)
+ * - Return false from coroutine to re-evaluate next tick
  */
 
 using System;
@@ -139,34 +150,44 @@ namespace TheWrangler
         /// <summary>
         /// Creates the main behavior tree.
         ///
-        /// FLOW:
-        /// 1. If pending order -> Execute it (await Lisbeth directly)
-        /// 2. If executing -> Keep waiting (shouldn't happen, but safety check)
-        /// 3. Otherwise -> Idle
+        /// IMPORTANT: Use a single ActionRunCoroutine to avoid issues with
+        /// Decorator conditions changing mid-execution. If we use Decorators
+        /// that check HasPendingOrder, the condition changes when we start
+        /// executing, which can orphan the running coroutine.
+        ///
+        /// This single-coroutine approach handles all states internally.
         /// </summary>
         private Composite CreateRoot()
         {
-            return new PrioritySelector(
-                // Execute pending order - await Lisbeth directly in coroutine
-                new Decorator(
-                    ctx => _controller.HasPendingOrder,
-                    new ActionRunCoroutine(ctx => ExecuteOrderAsync())
-                ),
-                // Safety: if still marked as executing, wait
-                new Decorator(
-                    ctx => _controller.IsExecuting,
-                    new ActionRunCoroutine(ctx => WaitAsync())
-                ),
-                // Idle
-                new ActionRunCoroutine(ctx => IdleAsync())
-            );
+            return new ActionRunCoroutine(ctx => MainLoopAsync());
+        }
+
+        /// <summary>
+        /// Main coroutine loop that handles all states.
+        /// Checks state each tick and acts accordingly.
+        /// </summary>
+        private async Task<bool> MainLoopAsync()
+        {
+            // Check if there's a pending order to execute
+            if (_controller.HasPendingOrder)
+            {
+                await ExecuteOrderAsync();
+            }
+            else
+            {
+                // Idle - yield to the coroutine system
+                await Coroutine.Yield();
+            }
+
+            // Return false to allow tree to re-evaluate (calls us again next tick)
+            return false;
         }
 
         /// <summary>
         /// Executes the pending order by awaiting Lisbeth directly.
         /// The await handles all coroutine integration automatically.
         /// </summary>
-        private async Task<bool> ExecuteOrderAsync()
+        private async Task ExecuteOrderAsync()
         {
             Log("Executing pending order...");
 
@@ -176,7 +197,7 @@ namespace TheWrangler
             try
             {
                 // Await Lisbeth directly - this is the key!
-                // The coroutine system handles yielding internally
+                // Lisbeth's ExecuteOrders is coroutine-compatible.
                 bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
 
                 _controller.OnOrderExecutionComplete(result);
@@ -186,26 +207,6 @@ namespace TheWrangler
                 Log($"Error executing order: {ex.Message}");
                 _controller.OnOrderExecutionError(ex.Message);
             }
-
-            return false; // Allow tree to re-evaluate
-        }
-
-        /// <summary>
-        /// Wait coroutine - just yields.
-        /// </summary>
-        private async Task<bool> WaitAsync()
-        {
-            await Coroutine.Yield();
-            return false;
-        }
-
-        /// <summary>
-        /// Idle coroutine - yields to the coroutine system.
-        /// </summary>
-        private async Task<bool> IdleAsync()
-        {
-            await Coroutine.Yield();
-            return false;
         }
 
         #endregion
