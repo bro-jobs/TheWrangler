@@ -1,0 +1,402 @@
+﻿//
+// LICENSE:
+// This work is licensed under the
+//     Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
+// also known as CC-BY-NC-SA.  To view a copy of this license, visit
+//      http://creativecommons.org/licenses/by-nc-sa/3.0/
+// or send a letter to
+//      Creative Commons // 171 Second Street, Suite 300 // San Francisco, California, 94105, USA.
+//
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Buddy.Coroutines;
+using Clio.Utilities;
+using Clio.XmlEngine;
+using ff14bot.Behavior;
+using ff14bot.Helpers;
+using ff14bot.Managers;
+using ff14bot.Navigation;
+using ff14bot.Pathing;
+using TreeSharp;
+using Action = TreeSharp.Action;
+
+namespace ff14bot.NeoProfiles
+{
+
+    #region Summary and Documentation
+    // QUICK DOX:
+    // FLYTO moves to the specified destination using a flying mount, if possible.  If we
+    // cannot fly in the area, this behavior will use ground travel to move to the destination.
+    // You may specify a single destination, or have FLYTO pick from one of several possible destinations.
+    //
+    // BEHAVIOR ATTRIBUTES:
+    // *** ALSO see the documentation in QuestBehaviorBase.cs.  All of the attributes it provides
+    // *** are available here, also.  The documentation on the attributes QuestBehaviorBase provides
+    // *** is _not_ repeated here, to prevent documentation inconsistencies.
+    //
+    // Basic Attributes:
+    //      X/Y/Z [required, if <DestinationChoices> sub-element not specified; Default: none]
+    //          This specifies the location to which the toon should travel.
+    //          This value is automatically converted to a <DestinationChoices> waypoint.
+    //
+    // Tunables:
+    //      AllowedVariance [optional; Default: 0.0; RECOMMENDED: 7.0]
+    //          ***It is HIGHLY recommended you make this value somewhere around 7.0 - 10.0.  The default value
+    //          of zero is to maintain backward compatibility for existing profiles.***
+    //			This value is used to:
+    //			* Prevent toons running the same profile from 'stacking up' on each other once they arrive
+    //			* Defeat WoWserver-side LCP detection
+    //			This value represents a radius.  A fractional percentage of this radius will be added
+    //			to the specified X/Y/Z in a random direction, and that new point used for the final destination.
+    //			The effect is that X/Y/Z no longer defines a 'landing point', but instead, a 'landing zone'.
+    //			The final destination is always selected in a sane fashion, so boundary cases like boat
+    //			docks and blimp towers should not be a concern.
+    //          By default, this value will move to the exact X/Y/Z specified.  It is HIGHLY recommended you
+    //          allow a more 'fuzzy' destination by setting this value from 7.0 - 10.0.  This will help
+    //          abate automated WoWserver-side detection, and make the toons look more 'human like' when
+    //          they are waiting for boats and whatnot.
+    //          N.B.: This AllowedVariance is only associated with the X/Y/Z specified in the FlyTo proper.
+    //          If you use the <DestinationChoices> sub-element-form of FlyTo, you specify an AllowedVariance
+    //          with each <Hotspot> in the destination choices.
+    //      ArrivalTolerance [optional;  Default: 1.5]
+    //			The distance to X/Y/Z at which we can declare we have 'arrived'.  Once we are within ArrivalTolerance
+    //			of the destination, landing procedures will be conducted if the caller has specified.  Otherwise,
+    //			the behavior simply terminates.
+    //          N.B.: This ArrivalTolerance is only associated with the X/Y/Z specified in the FlyTo proper.
+    //          If you use the <DestinationChoices> sub-element-form of FlyTo, you specify an ArrivalTolerance
+    //          with each <Hotspot> in the destination choices.
+    //		DestName [optional; Default:  X/Y/Z location of the waypoint]
+    //			A human-readable name that should be associated with the provided X/Y/Z.
+    //      IgnoreIndoors [optional; Default: false]
+    //			If set to true, the behavior will employ alternate heuristics in an attempt
+    //			to navigate.
+    //			It is best to leave this set to false.
+    //      Land [optional; Default: false]
+    //			If set to true, FLYTO will land upon reaching the destination.
+    //			The toon will look for a suitable landing site (on rough terrain), so
+    //			the final location may not be the same as that specified in X/Y/Z.
+    //      MinHeight [optional]
+    //          This is passed to the FlyToParameters.
+    //          Used for keeping the toon at least MinHeight yards above the ground and checking if we have an
+    //          object on top of us (like buildings etc.) to determine if we should find a take off location.
+    //
+    // BEHAVIOR EXTENSION ELEMENTS (goes between <CustomBehavior ...> and </CustomBehavior> tags)
+    // See the "Examples" section for typical usage.
+    //      DestinationChoices [required, if X/Y/Z is not specified; Default: none]
+    //          The DestinationChoices contains a set of Waypoints.  ONE OF these waypoints will be randomly
+    //			selected as the FLYTO destination.  This is useful for the following purposes:
+    //				* Entering a large grinding area from multiple points
+    //					This helps toons 'fan out' if there's competition in the area. It also prevents
+    //					users from noticing bots landing at the same spot to start their grind.
+    //				* Fanning out into human-congested areas
+    //          Each Waypoint is provided by a <Hotspot ... /> element with the following
+    //          attributes:
+    //              Name [optional; Default: X/Y/Z location of the waypoint]
+    //                  The name of the waypoint is presented to the user as it is visited.
+    //                  This can be useful for debugging purposes, and for making minor adjustments
+    //                  (you know which waypoint to be fiddling with).
+    //              X/Y/Z [REQUIRED; Default: none]
+    //                  The world coordinates of the waypoint.
+    //				AllowedVariance [optional; Default: 7.0]
+    //					This value is used to:
+    //					* Prevent toons running the same profile from 'stacking up' on each other once they arrive
+    //					* Defeat WoWserver-side LCP detection
+    //					This value represents a radius.  A fractional percentage of this radius will be added
+    //					to the specified X/Y/Z in a random direction, and that new point used for the final destination.
+    //					The effect is that X/Y/Z no longer defines a 'point', but instead, a 'landing zone'.
+    //					The final destination is always selected in a sane fashion, so boundary cases like boat
+    //					docks and blimp towers should not be a concern.
+    //					We recommend you allow this value to default.  However, there may be the occasion that you need to
+    //					land on an exact point to prevent drawing aggro from a particular mob.  In this case, it is
+    //					appropriated to set the AllowedVariance to zero.
+    //              ArrivalTolerance [optional; Default: 1.5]
+    //					The distance to X/Y/Z at which we can declare we have 'arrived'.  Once we are
+    //					within ArrivalTolerance of the destination, landing procedures will be conducted
+    //					if the caller has specified.  Otherwise, the behavior simply terminates.
+    //
+    // THiNGS TO KNOW:
+    // * LCP article: http://iseclab.org/papers/botdetection-article.pdf
+    //
+    #endregion
+
+
+    #region Examples
+    // SIMPLE FLYTO:
+    //		<CustomBehavior File="FlyTo" DestName="Cathedral Square mailbox"
+    //                      X="-8657.595" Y="775.6388" Z="96.99747" AllowedVariance="5.0" />
+    //
+    // PRECISE LANDING DESTINATION:
+    // When stealing the Thunderbluff Flame for "A Thief's Reward", it is important to land in a precise location
+    // to prevent unnecessarily aggroing guards:
+    //		<CustomBehavior File="FlyTo" DestName="Thunderbluff flame" Land="true" AllowedVariance="0.0"
+    //						X="-1053.131" Y="284.7893" Z="133.8197" />
+    //
+    //
+    // "FANNING OUT" INTO A HUMAN-CONGESTED AREA:
+    // Entering a human-congested area makes it very easy to spot bots, if they all land at the same exact location.
+    // This problem is *especially* problematical for seasonal-type profiles where large chunks of the Community are
+    // all running the same profile through heavily-congested areas.  This technique allows the Community members
+    // running such profiles to 'scatter' upon arrival to congested areas, such that we do not draw attention.
+    //		<CustomBehavior File="FlyTo" Land="true" >
+    //			<DestinationChoices>
+    //				<Hotspot DestName="Stormwind: Backgate Bank" X="-8360.063" Y="620.2231" Z="95.35557" AllowedVariance="7.0" />
+    //				<Hotspot DestName="Stormwind: Canal mailbox" X="-8752.236" Y="561.497" Z="97.43406" AllowedVariance="7.0" />
+    //				<Hotspot DestName="Stormwind: Cathedral Square mailbox" X="-8657.595" Y="775.6388" Z="96.99747" AllowedVariance="3.0" />
+    //				<Hotspot DestName="Stormwind: Elder's mailbox" X="-8859.798" Y="640.8622" Z="96.28608" AllowedVariance="5.0" />
+    //				<Hotspot DestName="Stormwind: Fishing pier mailbox"  X="-8826.954" Y="729.8922" Z="98.42244" AllowedVariance="7.0" />
+    //			</DestinationChoices>
+    //		</CustomBehavior>
+    //
+    // PICKING A GRIND AREA START POINT:
+    // Here we want to enter a grind area from several possible starting points.  Once we arrive, we choose to remain
+    // on foot while we grind.  By picking one of several possible starting points, we are less obvious to bot watchers
+    // and other players that may be in the same area.
+    //		<CustomBehavior File="FlyTo" Land="true" AllowedVariance="7.0" >
+    //			<DestinationChoices>
+    //				<Hotspot Name="Warmaul Hill: main path up" X="-1076.62" Y="8726.684" Z="78.98088" AllowedVariance="7.0" />
+    //				<Hotspot Name="Warmaul Hill: cauldren on lower plateau" X="-1002.597" Y="8981.075" Z="94.9998" AllowedVariance="7.0" />
+    //				<Hotspot Name="Warmaul Hill: mid-plateau fire banner" X="-753.0932" Y="8774.961" Z="183.0739" AllowedVariance="7.0" />
+    //				<Hotspot Name="Warmaul Hill: mid-plateau path down" X="-769.6554" Y="8864.765" Z="182.0117" AllowedVariance="7.0" />
+    //			</DestinationChoices>
+    //		</CustomBehavior>
+    //
+    //		<SetGrindArea>
+    //			<GrindArea>
+    //				<TargetMinLevel>60</TargetMinLevel>
+    //				<TargetMaxLevel>76</TargetMaxLevel>
+    //				<!-- Use Factions OR MobIds, usually not both -->
+    //				<Factions>1693</Factions>
+    //				<!-- <MobIds></MobIds> -->
+    //				<MaxDistance>150</MaxDistance>
+    //				<RandomizeHotspots>true</RandomizeHotspots>
+    //				<Hotspots>
+    //					<Hotspot Name="Warmaul Hill: main path up" X="-1076.62" Y="8726.684" Z="78.98088" />
+    //					<Hotspot Name="lower-plateau small cave" X="-1129.587" Y="8986.811" Z="103.3183" />
+    //					<Hotspot Name="Warmaul Hill: cauldren on lower plateau" X="-1002.597" Y="8981.075" Z="94.9998" />
+    //					<Hotspot Name="path to upper plateau" X="-1003.514" Y="8870.865" Z="137.3745" />
+    //					<Hotspot Name="Warmaul Hill: mid-plateau path down" X="-769.6554" Y="8864.765" Z="182.0117" />
+    //					<Hotspot Name="mid-plateau cave: U turn" X="-804.4118" Y="8728.973" Z="179.524" />
+    //					<Hotspot Name="mid-plasteu cave: forked room" X="-836.8087" Y="8684.212" Z="181.179" />
+    //					<Hotspot Name="mid-plateau cave: back room" X="-911.4927" Y="8671.196" Z="171.3158" />
+    //					<Hotspot Name="mid-plateau cave: dias area" X="-876.7471" Y="8748.412" Z="174.8344" />
+    //					<Hotspot Name="Warmaul Hill: mid-plateau fire banner" X="-753.0932" Y="8774.961" Z="183.0739" />
+    //					<Hotspot Name="mid-plateau main cave entrance" X="-615.0732" Y="8805.139" Z="201.9375" />
+    //					<Hotspot Name="mid-plateau main cave backside" X="-452.9572" Y="8722.715" Z="182.6988" />
+    //					<Hotspot Name="mid-plateau back entrance" X="-396.6419" Y="8803.345" Z="216.8268" />
+    //					<Hotspot Name="mid-plateau back circle" X="-536.6176" Y="8882.902" Z="230.6543" />
+    //					<Hotspot Name="Cho'war the Pillager area" X="-474.5793" Y="8854.279" Z="239.5755" />
+    //				</Hotspots>
+    //			</GrindArea>
+    //		</SetGrindArea>
+    //		<GrindTo Nav="Run" Condition="..."/>
+    //
+    #endregion
+
+
+
+    [XmlElement("FlyTo")]
+
+    public class FlyTo : ProfileBehavior
+    {
+        private bool _done;
+        [XmlAttribute("XYZ")]
+        public Vector3 XYZ { get; set; }
+
+        [XmlAttribute("Name")]
+        public string Name { get; set; }
+
+
+        [DefaultValue(7.0f)]
+        [XmlAttribute("AllowedVariance")]
+        public float AllowedVariance { get; set; }
+
+        [DefaultValue(1.5f)]
+        [XmlAttribute("ArrivalTolerance")]
+        public float ArrivalTolerance { get; set; }
+
+        [DefaultValue(0f)]
+        [XmlAttribute("MinHeight")]
+        public float MinHeight { get; set; }
+
+
+        [XmlElement("DestinationChoices")]
+        public List<HotSpot> Hotspots { get; set; }
+
+
+        [DefaultValue(false)]
+        [XmlAttribute("Land")]
+        public bool Land { get; set; }
+
+        [DefaultValue(false)]
+        [XmlAttribute("Dismount")]
+        public bool Dismount { get; set; }
+
+
+        [DefaultValue(false)]
+        [XmlAttribute("IgnoreIndoors")]
+        public bool IgnoreIndoors { get; set; }
+
+
+        #region Private and Convenience variables
+        private Vector3? FinalDestination { get; set; }
+        private HotSpot RoughDestination { get; set; }
+        
+        #endregion
+
+
+        protected override void OnStart()
+        {
+            if (Hotspots != null && Hotspots.Count > 0)
+            {
+                var choice = Core.Random.Next(0, Hotspots.Count);
+                RoughDestination = Hotspots[choice];
+            }
+            else
+            {
+                RoughDestination = new HotSpot(XYZ,0){AllowedVariance = AllowedVariance,ArrivalTolerance = ArrivalTolerance};
+            }
+            
+            
+        }
+
+        /// <summary>
+        /// This gets called when a while loop starts over so reset anything that is used inside the IsDone check
+        /// </summary>
+        protected override void OnResetCachedDone()
+        {
+            _done = false;
+            RoughDestination = null;
+            FinalDestination = null;
+        }
+
+        public override bool IsDone { get { return _done; } }
+
+        #region Main Behaviors
+        protected override Composite CreateBehavior()
+        {
+            return new ActionRunCoroutine(ctx => MainCoroutine());
+        }
+
+
+        private async Task<bool> MainCoroutine()
+        {
+
+            var immediateDestination = await FindImmediateDestination();
+
+            // Arrived at destination?
+            if (AtLocation(Core.Player.Location, immediateDestination))
+            {
+                var completionMessage = string.Format("Arrived at destination '{0}'", RoughDestination.Name);
+
+                // Land if we need to...
+                // NB: The act of landing may cause us to exceed the ArrivalTolerance specified.
+                if (Land)
+                {
+                    //await UtilityCoroutine.LandAndDismount(string.Format("Landing at destination '{0}'", RoughDestination.Name));
+                    Log("Landing at destination '{0}'", RoughDestination.Name);
+                    var landed = await CommonTasks.Land();
+                    if (landed)
+                    {
+                        if (Dismount)
+                        {
+                            ActionManager.Dismount();
+                        }
+                        BehaviorDone(completionMessage);
+                        return true;
+                    }
+                    else
+                    {
+                        LogError("Failed to land at {0}",immediateDestination);
+                        return false;
+                    }
+                    
+                }
+
+                // Done...
+                BehaviorDone(completionMessage);
+                return false;
+            }
+
+            // Do not run FlyTo when there is a PoI set...
+            //if (BotPoi.Current.Type != PoiType.None)
+            //{
+            //    await Coroutine.Sleep(TimeSpan.FromSeconds(10));
+            //    QBCLog.DeveloperInfo("FlyTo temporarily suspended due to {0}", BotPoi.Current);
+            //    return true;
+            //}
+
+            // Move closer to destination...
+            var parameters = new FlyToParameters(immediateDestination) { CheckIndoors = !IgnoreIndoors };
+            if (MinHeight > 0)
+                parameters.MinHeight = MinHeight;
+
+            Flightor.MoveTo(parameters);
+            return true;
+        }
+        #endregion
+
+
+        #region Helpers
+        protected void BehaviorDone(string extraMessage = null)
+        {
+            if (!_done)
+            {
+                Log("{0} behavior complete.  {1}", GetType().Name, (extraMessage ?? string.Empty));
+                _done = true;
+            }
+        }
+
+        // NB: We cannot calculate our final (variant) destination early on, because we may be traveling
+        // large distances.  FanOutRandom() needs to be able to 'see' terrain features, WMOs, etc
+        // that need to be considered when calculating the final (variant) point.
+        // WMOs in particular need to be 'visible' for FanOutRandom() to take them into proper consideration.
+        // This means we must be reasonably near the destination before the FanOutRandom() is called.
+        private async Task<Vector3> FindImmediateDestination()
+        {
+            // If we have our final destination, use it...
+            if (FinalDestination.HasValue)
+            {
+                return FinalDestination.Value;
+            }
+
+            var distanceToPickVariantDestinationSqr = Math.Max(50.0, RoughDestination.ArrivalTolerance + 10.0);
+            distanceToPickVariantDestinationSqr *= distanceToPickVariantDestinationSqr;
+
+            // If we're close enough to 'see' final destination...
+            // Pick the final destination, and use it...
+            if (Core.Player.Location.DistanceSqr(RoughDestination.Position) <= distanceToPickVariantDestinationSqr)
+            {
+                FinalDestination = await RoughDestination.Position.FanOutRandomAsync(RoughDestination.AllowedVariance);
+                return FinalDestination.Value;
+            }
+
+            // Otherwise, maintain our pursuit of rough destination...
+            return RoughDestination.Position;
+        }
+
+        /// <summary>Determines if <paramref name="myPos"/> is at <paramref name="otherPos"/></summary>
+        private bool AtLocation(Vector3 myPos, Vector3 otherPos)
+        {
+            // We are using cylinder distance comparison because often times we want faily high precision
+            // but need an increased tolerance in the z coord due to 'otherPos' sometimes being below terrain.
+            if (myPos.Distance2DSqr(otherPos) > RoughDestination.ArrivalTolerance * RoughDestination.ArrivalTolerance)
+                return false;
+
+            var yTolerance = Math.Max(4.5f, RoughDestination.ArrivalTolerance);
+            return Math.Abs(otherPos.Y - myPos.Y) < yTolerance;
+        }
+        #endregion
+
+
+
+        protected override void OnDone()
+        {
+            // Force a stop!
+            Navigator.PlayerMover.MoveStop();
+        }
+    }
+}

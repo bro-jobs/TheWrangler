@@ -1,0 +1,12 @@
+Miners_Primary_Tool | Gold Thumb's Pickaxe | Slots: 5 | Gathering: 1711 | Perception: 1078 | Gp: 0
+Miners_Secondary_Tool | Gold Thumb's Sledgehammer | Slots: 5 | Gathering: 966 | Perception: 1803 | Gp: 9
+Head | Crested Hood Of Gathering | Slots: 5 | Gathering: 112 | Perception: 966 | Gp: 11
+Body | Crested Coat Of Gathering | Slots: 5 | Gathering: 1114 | Perception: 483 | Gp: 9
+Hands | Crested Gloves Of Gathering | Slots: 5 | Gathering: 853 | Perception: 20 | Gp: 9
+Legs | Crested Slops Of Gathering | Slots: 5 | Gathering: 569 | Perception: 284 | Gp: 9
+Feet | Crested Boots Of Gathering | Slots: 5 | Gathering: 48 | Perception: 624 | Gp: 20
+Earrings | Crested Earrings Of Gathering | Slots: 5 | Gathering: 56 | Perception: 36 | Gp: 131
+Necklace | Crested Necklace Of Gathering | Slots: 5 | Gathering: 56 | Perception: 36 | Gp: 131
+Bracelets | Crested Bracelet Of Gathering | Slots: 5 | Gathering: 56 | Perception: 36 | Gp: 131
+Ring | Crested Ring Of Gathering | Slots: 5 | Gathering: 56 | Perception: 56 | Gp: 68
+Ring | Crested Ring Of Gathering | Slots: 5 | Gathering: 56 | Perception: 56 | Gp: 68

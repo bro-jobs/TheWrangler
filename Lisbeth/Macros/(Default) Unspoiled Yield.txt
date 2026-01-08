@@ -1,0 +1,138 @@
+Name: (Default) Unspoiled Yield
+Type: UnspoiledYield
+Enabled: True
+Conditions: (PlayerLevel >= 40)
+Priority: 0
+Cost: 0
+SuggestedCost: 960
+
+CRYSTAL01: (IsCrystal == true && PlayerLevel < 68)
+- (Gp >= 200) The Giving Land | None
+- (Gp >= 150) The Twelve's Bounty | None
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Exit
+
+CRYSTAL02: (IsCrystal == true)
+- (Gp >= 200) The Giving Land | None
+- (Gp >= 150) The Twelve's Bounty | None
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Exit
+
+S0101: (PlayerLevel >= 100 && BonusYield >= 2 && Gp >= 900)
+- (Gp >= 100 && GatherersBoon <= 80) Mountaineer's Gift II | None
+- (Gp >= 50 && GatherersBoon <= 60) Mountaineer's Gift | None
+- (Gp >= 200) Nald'thal's Tidings | None
+=> S0102
+
+S0301: (PlayerLevel >= 100 && BonusAttempts >= 2 && Gp >= 900)
+- (Gp >= 100 && GatherersBoon <= 80) Mountaineer's Gift II | None
+- (Gp >= 200) Nald'thal's Tidings | None
+- (Gp >= 500) King's Yield II | None
+=> S0202
+
+S0401: (PlayerLevel >= 100 && BonusGatherersBoon >= 40 && Gp >= 850)
+- (Gp >= 100 && GatherersBoon <= 80) Mountaineer's Gift II | None
+- (Gp >= 50 && GatherersBoon <= 60) Mountaineer's Gift | None
+- (Gp >= 200) Nald'thal's Tidings | None
+- (Gp >= 500) King's Yield II | None
+=> S0202
+
+S0201: (PlayerLevel >= 100 && Gp >= 800)
+- (Gp >= 100 && GatherersBoon <= 80) Mountaineer's Gift II | None
+- (Gp >= 200) Nald'thal's Tidings | None
+- (Gp >= 500) King's Yield II | None
+=> S0202
+
+S010: (PlayerLevel >= 81 && GatherersBoon >= 50)
+- (Gp >= 500) Blessed Harvest II | None
+- (Gp >= 250) Nophica's Tidings | None
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Exit
+
+S011: (PlayerLevel >= 81)
+- (Gp >= 500) Blessed Harvest II | None
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Exit
+
+S1: (PlayerLevel >= 77)
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Hit
+- (Gp >= 100) Bountiful Harvest II | None
+- Exit
+
+S2:
+- (Gp >= 500) King's Yield II | None
+- (Gp >= 300) Field Mastery II | None
+- (Gp >= 100) Bountiful Harvest | None
+- Hit
+- (Gp >= 100) Bountiful Harvest | None
+- Exit
+
+END:
+- Exit
+
+S0102:
+- (EurekaMomentAura > 0 && SwingsDifference > 0) Wise to the World | None
+- (Gp >= 300 && SwingsDifference > 0) Solid Reason | None
+- Hit
+=> S0102 (Gp >= 300)
+=> S0103
+
+S0103:
+- (EurekaMomentAura > 0 && SwingsDifference > 0) Wise to the World | None
+- (Gp >= 100) Bountiful Harvest II | None
+- Exit
+
+S0202:
+- (Gp >= 100) Bountiful Yield II | None
+- Hit
+=> S0202 (SwingsRemaining > 0)
+=> END

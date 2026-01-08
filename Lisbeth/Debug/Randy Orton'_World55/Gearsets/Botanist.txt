@@ -1,0 +1,12 @@
+Botanists_Primary_Tool | Mythrite Hatchet | Slots: 0 | Gathering: 171 | Perception: 98 | Gp: 0
+Botanists_Secondary_Tool | Wrapped Steel Scythe | Slots: 0 | Gathering: 43 | Perception: 76 | Gp: 0
+Head | Holy Rainbow Hat | Slots: 0 | Gathering: 0 | Perception: 94 | Gp: 0
+Body | Wyvernskin Jerkin | Slots: 0 | Gathering: 94 | Perception: 47 | Gp: 0
+Hands | Holy Rainbow Work Gloves | Slots: 0 | Gathering: 71 | Perception: 0 | Gp: 0
+Legs | Wyvernskin Culottes | Slots: 0 | Gathering: 47 | Perception: 24 | Gp: 0
+Feet | Wyvernskin Workboots | Slots: 0 | Gathering: 0 | Perception: 52 | Gp: 0
+Earrings | Mythrite Earrings Of Gathering | Slots: 0 | Gathering: 0 | Perception: 0 | Gp: 47
+Necklace | Wyvernskin Choker | Slots: 0 | Gathering: 0 | Perception: 0 | Gp: 47
+Bracelets | Wyvernskin Wristbands | Slots: 0 | Gathering: 0 | Perception: 0 | Gp: 47
+Ring | Wyvernskin Ring | Slots: 0 | Gathering: 0 | Perception: 0 | Gp: 24
+Ring | Wyvernskin Ring | Slots: 0 | Gathering: 0 | Perception: 0 | Gp: 24

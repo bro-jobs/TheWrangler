@@ -1,0 +1,12 @@
+Leatherworkers_Primary_Tool | Mythrite Round Knife | Slots: 0 | Craftsmanship: 170 | Control: 92 | Cp: 0
+Leatherworkers_Secondary_Tool | Mythrite Awl | Slots: 0 | Craftsmanship: 180 | Control: 97 | Cp: 0
+Head | Holy Rainbow Wedge Cap | Slots: 0 | Craftsmanship: 0 | Control: 52 | Cp: 0
+Body | Holy Rainbow Coatee | Slots: 0 | Craftsmanship: 137 | Control: 52 | Cp: 0
+Hands | Holy Rainbow Gloves | Slots: 0 | Craftsmanship: 0 | Control: 52 | Cp: 0
+Legs | Holy Rainbow Bottoms | Slots: 0 | Craftsmanship: 0 | Control: 52 | Cp: 0
+Feet | Holy Rainbow Shoes | Slots: 0 | Craftsmanship: 0 | Control: 52 | Cp: 0
+Earrings | Yeti Fang Earrings | Slots: 0 | Craftsmanship: 0 | Control: 0 | Cp: 34
+Necklace | Holy Cedar Necklace | Slots: 0 | Craftsmanship: 0 | Control: 0 | Cp: 38
+Bracelets | Holy Cedar Armillae | Slots: 0 | Craftsmanship: 0 | Control: 0 | Cp: 36
+Ring | Holy Cedar Ring | Slots: 0 | Craftsmanship: 0 | Control: 0 | Cp: 18
+Ring | Holy Cedar Ring | Slots: 0 | Craftsmanship: 0 | Control: 0 | Cp: 18

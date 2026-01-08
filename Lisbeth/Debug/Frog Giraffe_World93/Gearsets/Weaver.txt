@@ -1,0 +1,12 @@
+Weavers_Primary_Tool | Gold Thumb's Needle | Slots: 5 | Craftsmanship: 1720 | Control: 967 | Cp: 8
+Weavers_Secondary_Tool | Gold Thumb's Spinning Wheel | Slots: 5 | Craftsmanship: 1720 | Control: 967 | Cp: 8
+Head | Crested Headband Of Crafting | Slots: 5 | Craftsmanship: 22 | Control: 618 | Cp: 10
+Body | Crested Shirt Of Crafting | Slots: 5 | Craftsmanship: 1496 | Control: 618 | Cp: 7
+Hands | Crested Gloves Of Crafting | Slots: 5 | Craftsmanship: 22 | Control: 618 | Cp: 10
+Legs | Crested Culottes Of Crafting | Slots: 5 | Craftsmanship: 98 | Control: 610 | Cp: 11
+Feet | Crested Boots Of Crafting | Slots: 5 | Craftsmanship: 98 | Control: 610 | Cp: 11
+Earrings | Crested Earrings Of Crafting | Slots: 5 | Craftsmanship: 98 | Control: 61 | Cp: 100
+Necklace | Crested Necklace Of Crafting | Slots: 5 | Craftsmanship: 98 | Control: 61 | Cp: 100
+Bracelets | Crested Bracelet Of Crafting | Slots: 5 | Craftsmanship: 98 | Control: 61 | Cp: 100
+Ring | Crested Ring Of Crafting | Slots: 5 | Craftsmanship: 77 | Control: 201 | Cp: 52
+Ring | Crested Ring Of Crafting | Slots: 5 | Craftsmanship: 77 | Control: 201 | Cp: 52

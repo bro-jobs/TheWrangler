@@ -1,0 +1,1 @@
+Fishers_Primary_Tool | Weathered Fishing Rod | Slots: 0 | Gathering: 22 | Perception: 0 | Gp: 0
