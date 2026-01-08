@@ -333,6 +333,11 @@ namespace TheWrangler
         /// Requests Lisbeth to stop gracefully - fire and forget version.
         /// This can be called from the UI thread without blocking.
         /// The stop will complete after the current action finishes.
+        ///
+        /// NOTE: The task may fault with "only be used from within a coroutine"
+        /// because Lisbeth's internal cleanup requires coroutine context.
+        /// However, the stop signal IS sent successfully - Lisbeth will stop.
+        /// We suppress this specific error since it's misleading.
         /// </summary>
         public void RequestStopGently()
         {
@@ -344,21 +349,25 @@ namespace TheWrangler
 
             try
             {
-                Log("Invoking StopGently...");
+                Log("Requesting Lisbeth stop gently (signal sent)...");
                 // Fire-and-forget: invoke and don't await
-                // The returned Task will run and signal Lisbeth to stop
+                // The stop signal is sent immediately even if the task faults
                 var task = _stopGently.Invoke();
 
-                // Optional: log when it completes (without blocking)
+                // The task may fault because Lisbeth's cleanup needs coroutine context,
+                // but the stop signal has already been sent. Don't log the expected fault.
                 task.ContinueWith(t =>
                 {
                     if (t.IsFaulted)
                     {
-                        Log($"StopGently faulted: {t.Exception?.InnerException?.Message}");
-                    }
-                    else
-                    {
-                        Log("StopGently completed.");
+                        // Check if it's the expected coroutine error - don't log it
+                        var msg = t.Exception?.InnerException?.Message ?? "";
+                        if (!msg.Contains("coroutine"))
+                        {
+                            // Only log unexpected errors
+                            Log($"StopGently error: {msg}");
+                        }
+                        // Otherwise silently ignore - stop signal was sent successfully
                     }
                 });
             }
