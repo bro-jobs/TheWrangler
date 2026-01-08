@@ -6,26 +6,20 @@
  * This class acts as the intermediary between the UI (WranglerForm) and the
  * Lisbeth API. It handles all the business logic, keeping the form and API clean.
  *
- * IMPORTANT - TASK MANAGEMENT:
- * RebornBuddy's coroutine system doesn't support awaiting external tasks.
- * Instead, we start the Lisbeth task and poll its status each tick.
- * This allows long-running Lisbeth operations to complete properly.
- *
- * ARCHITECTURE:
- * WranglerForm --> WranglerController --> PendingOrder
- *                                              |
- *                                              v
- * TheWranglerBotBase (behavior tree) --> LisbethApi
+ * IMPORTANT - EXECUTION FLOW:
+ * The UI queues orders by setting PendingOrderJson.
+ * The behavior tree checks HasPendingOrder and calls GetPendingOrderData().
+ * The behavior tree then executes the order directly (awaiting Lisbeth).
+ * This avoids the "multiple coroutine tasks" issue.
  *
  * NOTES FOR CLAUDE:
- * - Use polling pattern for external tasks, not await
- * - Start task, store it, check IsCompleted each tick
- * - When task completes, extract result and report
+ * - Don't create tasks in controller - let behavior tree handle it
+ * - Controller just manages state and validation
+ * - Actual Lisbeth execution happens in behavior tree coroutine
  */
 
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using ff14bot.Helpers;
 
 namespace TheWrangler
@@ -38,7 +32,6 @@ namespace TheWrangler
         #region Fields
 
         private readonly LisbethApi _lisbethApi;
-        private Task<bool> _runningTask;
 
         #endregion
 
@@ -84,14 +77,14 @@ namespace TheWrangler
         public bool HasPendingOrder => !string.IsNullOrEmpty(PendingOrderJson);
 
         /// <summary>
-        /// Returns true if a task is currently running.
+        /// Flag indicating an order is currently executing.
         /// </summary>
-        public bool IsTaskRunning => _runningTask != null && !_runningTask.IsCompleted;
+        public bool IsExecuting { get; private set; }
 
         /// <summary>
-        /// Returns true if an order is currently executing (either pending or running).
+        /// Get the Lisbeth API for direct execution by behavior tree.
         /// </summary>
-        public bool IsExecuting => HasPendingOrder || IsTaskRunning;
+        public LisbethApi LisbethApi => _lisbethApi;
 
         #endregion
 
@@ -141,7 +134,6 @@ namespace TheWrangler
 
         /// <summary>
         /// Queues the selected JSON file for execution.
-        /// The actual execution happens in the behavior tree via StartPendingOrder().
         /// </summary>
         /// <returns>True if order was queued successfully</returns>
         public bool QueueSelectedJson()
@@ -155,9 +147,9 @@ namespace TheWrangler
                 return false;
             }
 
-            if (IsExecuting)
+            if (IsExecuting || HasPendingOrder)
             {
-                OnLogMessage("Error: An order is already executing.");
+                OnLogMessage("Error: An order is already executing or pending.");
                 return false;
             }
 
@@ -196,91 +188,54 @@ namespace TheWrangler
                 }
             }
 
-            // Queue the order for execution by the behavior tree
+            // Queue the order
             PendingOrderJson = json;
-            OnStatusChanged("Order queued - Start the bot to execute");
-            OnLogMessage("Order queued. Start the bot (or it will execute on next tick if running).");
+            OnStatusChanged("Order queued");
+            OnLogMessage("Order queued. Starting execution...");
 
             return true;
         }
 
         /// <summary>
-        /// Starts the pending order. Called by behavior tree.
-        /// Does NOT await - starts the task and returns immediately.
-        /// Use CheckTaskStatus() to poll for completion.
+        /// Gets and clears the pending order data.
+        /// Called by behavior tree when starting execution.
         /// </summary>
-        public void StartPendingOrder()
+        /// <returns>Tuple of (json, ignoreHome)</returns>
+        public (string json, bool ignoreHome) GetPendingOrderData()
         {
-            if (!HasPendingOrder)
-            {
-                return;
-            }
-
             var json = PendingOrderJson;
             var ignoreHome = WranglerSettings.Instance.IgnoreHome;
 
-            // Clear the pending order
+            // Clear pending and mark as executing
             PendingOrderJson = null;
+            IsExecuting = true;
 
             OnStatusChanged("Running orders...");
             OnLogMessage("Executing Lisbeth orders...");
 
-            // Start the task without awaiting (fire and forget within our control)
-            _runningTask = _lisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+            return (json, ignoreHome);
         }
 
         /// <summary>
-        /// Checks if the running task has completed.
-        /// Call this each tick from the behavior tree.
-        /// Returns true if there's still work in progress.
+        /// Called when order execution completes.
         /// </summary>
-        public bool CheckTaskStatus()
+        public void OnOrderExecutionComplete(bool success)
         {
-            if (_runningTask == null)
-            {
-                return false; // No task running
-            }
-
-            if (!_runningTask.IsCompleted)
-            {
-                return true; // Still running
-            }
-
-            // Task completed - process result
-            bool success = false;
-            try
-            {
-                if (_runningTask.IsFaulted)
-                {
-                    var ex = _runningTask.Exception?.InnerException ?? _runningTask.Exception;
-                    OnStatusChanged("Error");
-                    OnLogMessage($"Error executing orders: {ex?.Message ?? "Unknown error"}");
-                    Log($"Task faulted: {ex}");
-                }
-                else if (_runningTask.IsCanceled)
-                {
-                    OnStatusChanged("Cancelled");
-                    OnLogMessage("Order execution was cancelled.");
-                }
-                else
-                {
-                    success = _runningTask.Result;
-                    OnStatusChanged(success ? "Completed" : "Did not complete");
-                    OnLogMessage(success ? "Orders completed successfully!" : "Orders did not complete.");
-                }
-            }
-            catch (Exception ex)
-            {
-                OnStatusChanged("Error");
-                OnLogMessage($"Error processing result: {ex.Message}");
-                Log($"Exception processing task result: {ex}");
-            }
-
-            // Cleanup
-            _runningTask = null;
+            IsExecuting = false;
+            OnStatusChanged(success ? "Completed" : "Did not complete");
+            OnLogMessage(success ? "Orders completed successfully!" : "Orders did not complete.");
             OnOrderCompleted(success);
+        }
 
-            return false; // Task done
+        /// <summary>
+        /// Called when order execution fails with an error.
+        /// </summary>
+        public void OnOrderExecutionError(string error)
+        {
+            IsExecuting = false;
+            OnStatusChanged("Error");
+            OnLogMessage($"Error: {error}");
+            OnOrderCompleted(false);
         }
 
         /// <summary>
@@ -297,28 +252,14 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Reports an error from the behavior tree back to the UI.
-        /// </summary>
-        public void ReportError(string message)
-        {
-            OnStatusChanged("Error");
-            OnLogMessage($"Error: {message}");
-            OnOrderCompleted(false);
-            _runningTask = null;
-            PendingOrderJson = null;
-        }
-
-        /// <summary>
         /// Called when the bot stops. Resets state and notifies UI.
         /// </summary>
         public void OnBotStopped()
         {
-            // Clear any pending/running state
             PendingOrderJson = null;
-            _runningTask = null;
-
+            IsExecuting = false;
             OnStatusChanged("Bot stopped");
-            OnOrderCompleted(false); // This resets the UI button
+            OnOrderCompleted(false);
         }
 
         /// <summary>
