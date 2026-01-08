@@ -2,7 +2,16 @@
 # PyInstaller spec file for WranglerMaster
 # Build with: pyinstaller WranglerMaster.spec
 
+import os
+
 block_cipher = None
+
+# Check if custom icon exists (supports .ico or .png)
+icon_file = None
+if os.path.exists('wrangler.ico'):
+    icon_file = 'wrangler.ico'
+elif os.path.exists('wrangler.png'):
+    icon_file = 'wrangler.png'  # PyInstaller auto-converts PNG to ICO
 
 a = Analysis(
     ['wrangler_master.py'],
@@ -42,6 +51,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_file,  # Use custom icon if available
     uac_admin=True,  # Request admin privileges
     uac_uiaccess=False,
 )
