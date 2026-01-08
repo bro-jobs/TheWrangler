@@ -253,9 +253,13 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot stops. Resets state and notifies UI.
+        /// Also calls Lisbeth's StopAction to clean up resources.
         /// </summary>
         public void OnBotStopped()
         {
+            // Clean up Lisbeth resources
+            _lisbethApi.Stop();
+
             PendingOrderJson = null;
             IsExecuting = false;
             OnStatusChanged("Bot stopped");

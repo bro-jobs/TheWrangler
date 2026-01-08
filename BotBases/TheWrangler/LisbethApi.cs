@@ -54,6 +54,11 @@ namespace TheWrangler
         private object _lisbeth;
         private MethodInfo _orderMethod;
 
+        // Lisbeth lifecycle actions - CRITICAL for proper initialization
+        private Action _startAction;
+        private Action _stopAction;
+        private bool _hasStarted;
+
         // API Delegates - bound at runtime via reflection
         private Func<string> _getActiveOrders;
         private Func<string> _getIncompleteOrders;
@@ -124,7 +129,10 @@ namespace TheWrangler
                     return false;
                 }
 
-                // Step 4: Bind additional API methods
+                // Step 4: Get StartAction and StopAction - CRITICAL for Lisbeth initialization
+                BindLifecycleActions();
+
+                // Step 5: Bind additional API methods
                 BindApiMethods();
 
                 StatusMessage = "Lisbeth API initialized successfully.";
@@ -136,6 +144,45 @@ namespace TheWrangler
                 StatusMessage = $"Error initializing Lisbeth API: {ex.Message}";
                 Log(StatusMessage);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Binds the StartAction and StopAction from LisbethBot.
+        /// These are CRITICAL - Lisbeth's internal systems (like SextantFlight)
+        /// won't be initialized without calling StartAction first.
+        /// </summary>
+        private void BindLifecycleActions()
+        {
+            try
+            {
+                // Get StartAction property
+                var startProp = _lisbeth.GetType().GetProperty("StartAction");
+                if (startProp != null)
+                {
+                    _startAction = (Action)startProp.GetValue(_lisbeth);
+                    Log($"DEBUG: StartAction bound: {_startAction != null}");
+                }
+                else
+                {
+                    Log("Warning: Could not find StartAction property");
+                }
+
+                // Get StopAction property
+                var stopProp = _lisbeth.GetType().GetProperty("StopAction");
+                if (stopProp != null)
+                {
+                    _stopAction = (Action)stopProp.GetValue(_lisbeth);
+                    Log($"DEBUG: StopAction bound: {_stopAction != null}");
+                }
+                else
+                {
+                    Log("Warning: Could not find StopAction property");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Warning: Error binding lifecycle actions: {ex.Message}");
             }
         }
 
@@ -213,6 +260,15 @@ namespace TheWrangler
 
             try
             {
+                // Call StartAction before first execution to initialize Lisbeth's systems
+                if (!_hasStarted && _startAction != null)
+                {
+                    Log("Calling Lisbeth StartAction to initialize systems...");
+                    _startAction.Invoke();
+                    _hasStarted = true;
+                    Log("Lisbeth StartAction completed.");
+                }
+
                 Log("Starting Lisbeth order execution...");
                 Log($"DEBUG: _lisbeth is null: {_lisbeth == null}");
                 Log($"DEBUG: _orderMethod is null: {_orderMethod == null}");
@@ -271,6 +327,28 @@ namespace TheWrangler
         public void OpenLisbethWindow()
         {
             _openWindow?.Invoke();
+        }
+
+        /// <summary>
+        /// Calls Lisbeth's StopAction to clean up resources.
+        /// Should be called when TheWrangler stops.
+        /// </summary>
+        public void Stop()
+        {
+            if (_hasStarted && _stopAction != null)
+            {
+                Log("Calling Lisbeth StopAction to clean up...");
+                try
+                {
+                    _stopAction.Invoke();
+                    Log("Lisbeth StopAction completed.");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Warning: Error in StopAction: {ex.Message}");
+                }
+                _hasStarted = false;
+            }
         }
 
         #endregion
