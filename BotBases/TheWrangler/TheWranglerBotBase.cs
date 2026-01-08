@@ -7,34 +7,19 @@
  * RebornBuddy's bot framework, providing the required interface for the bot
  * to be recognized and run.
  *
- * BOT BASE INTERFACE:
- * - Name: Display name in bot selection dropdown
- * - Root: Behavior tree that runs when the bot is started
- * - Start/Stop: Called when bot execution begins/ends
- * - OnButtonPress: Opens the UI when button is clicked
+ * IMPORTANT - TASK POLLING PATTERN:
+ * RebornBuddy's coroutine system can't await external tasks.
+ * Instead, we use a polling pattern:
+ * 1. Start task (fire and forget)
+ * 2. Each tick, check if task is completed
+ * 3. When done, process result
  *
- * ARCHITECTURE:
- * RebornBuddy -> TheWranglerBotBase -> WranglerController -> LisbethApi
- *                          |
- *                          v
- *                    WranglerForm (UI)
- *
- * IMPORTANT - COROUTINE CONTEXT:
- * Lisbeth's ExecuteOrders MUST be called from within a coroutine context.
- * The behavior tree's Root handles this by checking for pending orders
- * and executing them via ActionRunCoroutine.
- *
- * HOW IT WORKS:
- * 1. User selects "TheWrangler" in RebornBuddy's bot dropdown
- * 2. Clicking "Settings" opens WranglerForm
- * 3. User selects a JSON file and clicks "Run" (queues the order)
- * 4. User clicks "Start" in RebornBuddy (or bot is already running)
- * 5. The behavior tree picks up the pending order and executes it
+ * This approach works because we're not awaiting - we just check status.
  *
  * NOTES FOR CLAUDE:
- * - Orders MUST execute in the behavior tree, not from UI thread
- * - WinForms runs on a separate STA thread (see ToggleUI method)
- * - The controller is shared between UI and behavior tree
+ * - DON'T await external tasks - they break the coroutine system
+ * - Use polling pattern: start task, check IsCompleted each tick
+ * - Use Coroutine.Yield() for idle, NOT Task.Delay()
  */
 
 using System;
@@ -42,6 +27,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Media;
+using Buddy.Coroutines;
 using ff14bot.AClasses;
 using ff14bot.Behavior;
 using ff14bot.Helpers;
@@ -100,7 +86,7 @@ namespace TheWrangler
 
         /// <summary>
         /// The behavior tree that runs when the bot is active.
-        /// Checks for pending orders and executes them in the proper coroutine context.
+        /// Uses polling pattern for task management.
         /// </summary>
         public override Composite Root => _root ?? (_root = CreateRoot());
 
@@ -156,49 +142,47 @@ namespace TheWrangler
         /// <summary>
         /// Creates the main behavior tree.
         ///
-        /// ARCHITECTURE NOTE:
-        /// The behavior tree checks for pending orders from the controller.
-        /// When found, it executes them within the proper coroutine context.
-        /// This is necessary because Lisbeth's ExecuteOrders cannot be called
-        /// from a UI thread - it must run within the behavior tree.
-        ///
-        /// FLOW:
-        /// 1. Check if controller has pending order
-        /// 2. If yes, execute via ActionRunCoroutine (proper context)
-        /// 3. If no, idle and wait for next tick
+        /// POLLING PATTERN:
+        /// 1. If pending order exists -> Start it (sync, no await)
+        /// 2. If task is running -> Check status (sync, no await)
+        /// 3. Otherwise -> Yield and wait
         /// </summary>
         private Composite CreateRoot()
         {
             return new PrioritySelector(
-                // Execute pending orders when available
+                // Start pending order if available
                 new Decorator(
                     ctx => _controller.HasPendingOrder,
-                    new ActionRunCoroutine(ctx => ExecutePendingOrderAsync())
+                    new TreeSharp.Action(ctx =>
+                    {
+                        Log("Starting pending order...");
+                        _controller.StartPendingOrder();
+                        return RunStatus.Success;
+                    })
                 ),
-                // Idle when no orders - keeps the bot "running"
+                // Check running task status
+                new Decorator(
+                    ctx => _controller.IsTaskRunning,
+                    new TreeSharp.Action(ctx =>
+                    {
+                        // Check if task completed this tick
+                        _controller.CheckTaskStatus();
+                        return RunStatus.Success;
+                    })
+                ),
+                // Idle - yield to the system
                 new ActionRunCoroutine(ctx => IdleAsync())
             );
         }
 
         /// <summary>
-        /// Executes a pending order from the controller.
-        /// This runs within the behavior tree's coroutine context.
-        /// </summary>
-        private async Task<bool> ExecutePendingOrderAsync()
-        {
-            Log("Executing pending order...");
-            await _controller.ExecutePendingOrder();
-            return true;
-        }
-
-        /// <summary>
-        /// Idle coroutine - just waits a bit to not hog CPU.
+        /// Idle coroutine - yields to the coroutine system.
+        /// IMPORTANT: Use Coroutine.Yield(), NOT Task.Delay()!
         /// </summary>
         private async Task<bool> IdleAsync()
         {
-            // Small delay to prevent busy-waiting
-            await Task.Delay(100);
-            return true;
+            await Coroutine.Yield();
+            return false;
         }
 
         #endregion
@@ -208,10 +192,6 @@ namespace TheWrangler
         /// <summary>
         /// Toggles the UI form open/closed.
         /// Creates a new STA thread for WinForms if needed.
-        ///
-        /// WHY STA THREAD?
-        /// WinForms requires a Single-Threaded Apartment (STA) thread
-        /// because of how Windows handles COM objects and message pumping.
         /// </summary>
         private void ToggleUI()
         {

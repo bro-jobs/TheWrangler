@@ -192,36 +192,36 @@ namespace TheWrangler
 
         /// <summary>
         /// Executes Lisbeth orders from a JSON string.
-        /// This is the primary method for running crafting/gathering orders.
+        /// Returns the Task directly without awaiting - use for polling pattern.
         /// </summary>
         /// <param name="json">JSON string containing Lisbeth orders</param>
         /// <param name="ignoreHome">If true, skips returning to home location</param>
-        /// <returns>True if orders completed successfully</returns>
-        public async Task<bool> ExecuteOrders(string json, bool ignoreHome = false)
+        /// <returns>Task that completes when orders finish</returns>
+        public Task<bool> ExecuteOrdersAsync(string json, bool ignoreHome = false)
         {
             if (!IsInitialized)
             {
                 Log("Error: Cannot execute orders - Lisbeth API not initialized.");
-                return false;
+                return Task.FromResult(false);
             }
 
             if (string.IsNullOrWhiteSpace(json))
             {
                 Log("Error: Cannot execute orders - JSON is empty.");
-                return false;
+                return Task.FromResult(false);
             }
 
             try
             {
-                Log("Executing Lisbeth orders...");
-                var result = await (Task<bool>)_orderMethod.Invoke(_lisbeth, new object[] { json, ignoreHome });
-                Log(result ? "Orders completed successfully." : "Orders did not complete successfully.");
-                return result;
+                Log("Starting Lisbeth order execution...");
+                // Return the task directly - don't await it here
+                // The caller will poll IsCompleted to check status
+                return (Task<bool>)_orderMethod.Invoke(_lisbeth, new object[] { json, ignoreHome });
             }
             catch (Exception ex)
             {
-                Log($"Error executing orders: {ex.Message}");
-                return false;
+                Log($"Error starting orders: {ex.Message}");
+                return Task.FromResult(false);
             }
         }
 
