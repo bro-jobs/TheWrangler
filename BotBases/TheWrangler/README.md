@@ -132,31 +132,48 @@ public class WranglerSettings
 #### 5. CRITICAL - Coroutine System
 RebornBuddy uses `Buddy.Coroutines` which has strict rules:
 
+**Key Rules (from decompiled Coroutine.cs):**
+- Coroutines should only await tasks from the `Buddy.Coroutines.Coroutine` class
+- Coroutines should always immediately await the tasks they create
+- Cannot obtain multiple coroutine tasks in a single tick
+
 **DON'T:**
-- Await external Tasks directly (throws "No continuation was queued" error)
+- Await truly external (non-coroutine) Tasks directly without wrapping
 - Use `Task.Delay()` in behavior trees
+- Use multiple Decorators with conditions that change during execution
 
 **DO:**
+- Await coroutine-compatible tasks directly (e.g., Lisbeth's ExecuteOrders)
 - Use `Coroutine.Yield()` to yield control
-- Use polling pattern for external tasks:
+- Use `Coroutine.ExternalTask()` for external (non-coroutine) tasks:
   ```csharp
-  // Start task without awaiting
-  _task = ExternalApi.DoSomethingAsync();
+  // For external tasks (NOT coroutine-based), wrap with ExternalTask:
+  await Coroutine.ExternalTask(someExternalTask);
+  ```
+- Use a SINGLE ActionRunCoroutine with internal state checks:
+  ```csharp
+  // BAD - condition changes mid-execution, orphaning coroutine:
+  new PrioritySelector(
+      new Decorator(ctx => HasPendingOrder, new ActionRunCoroutine(...)),  // condition becomes false
+      new Decorator(ctx => IsExecuting, new ActionRunCoroutine(...))       // this runs instead!
+  );
 
-  // In behavior tree, yield while waiting
-  while (!_task.IsCompleted)
+  // GOOD - single coroutine handles all states:
+  return new ActionRunCoroutine(ctx => MainLoopAsync());
+
+  private async Task<bool> MainLoopAsync()
   {
-      await Coroutine.Yield();  // Gives external code CPU time
+      if (HasPendingOrder)
+          await ExecuteOrderAsync();  // awaits until complete, no Decorator interference
+      else
+          await Coroutine.Yield();
+      return false;  // re-evaluate next tick
   }
-
-  // Process result
-  var result = _task.Result;
   ```
 
-**Why this matters:**
-Lisbeth (and other bots) need coroutine yields to execute. If you just poll
-`Task.IsCompleted` without yielding, the external code never gets CPU time.
-You MUST yield while waiting for external tasks to complete.
+**Lisbeth-specific:**
+Lisbeth's `ExecuteOrders` returns a coroutine-compatible Task<bool>, so you
+can await it directly. It internally uses the coroutine system.
 
 ---
 
