@@ -13,22 +13,23 @@
  * POST /run     - Start execution with JSON body: {"jsonPath":"..."} or {"json":"..."}
  * POST /stop    - Trigger StopGently
  *
- * USAGE:
- * The server starts automatically when TheWrangler BotBase is selected
- * if remote control is enabled in settings.
+ * IMPLEMENTATION:
+ * Uses TcpListener instead of HttpListener because HttpListener
+ * requires assembly references not available in RebornBuddy's runtime.
  *
  * NOTES FOR CLAUDE:
- * - HttpListener requires appropriate permissions on Windows
+ * - Uses raw TCP sockets with manual HTTP parsing
  * - Server runs on a background thread
  * - All responses are JSON (except /health which is plain text)
  */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using ff14bot.Helpers;
 using Newtonsoft.Json;
 
@@ -36,13 +37,14 @@ namespace TheWrangler
 {
     /// <summary>
     /// HTTP server for remote control of TheWrangler.
+    /// Uses raw TcpListener for compatibility with RebornBuddy.
     /// </summary>
     public class RemoteServer : IDisposable
     {
         #region Fields
 
         private readonly WranglerController _controller;
-        private HttpListener _listener;
+        private TcpListener _listener;
         private Thread _listenerThread;
         private volatile bool _isRunning;
         private readonly int _port;
@@ -93,9 +95,7 @@ namespace TheWrangler
 
             try
             {
-                _listener = new HttpListener();
-                _listener.Prefixes.Add($"http://+:{_port}/");
-
+                _listener = new TcpListener(IPAddress.Any, _port);
                 _listener.Start();
                 _isRunning = true;
 
@@ -108,11 +108,10 @@ namespace TheWrangler
 
                 Log($"Remote server started on port {_port}");
             }
-            catch (HttpListenerException ex)
+            catch (SocketException ex)
             {
                 Log($"Failed to start server: {ex.Message}");
-                Log("Note: You may need to run as administrator or add URL reservation:");
-                Log($"  netsh http add urlacl url=http://+:{_port}/ user=Everyone");
+                Log("Note: The port may already be in use.");
                 _isRunning = false;
             }
             catch (Exception ex)
@@ -135,7 +134,6 @@ namespace TheWrangler
             try
             {
                 _listener?.Stop();
-                _listener?.Close();
             }
             catch (Exception ex)
             {
@@ -158,17 +156,17 @@ namespace TheWrangler
             {
                 try
                 {
-                    // GetContext blocks until a request comes in
-                    var context = _listener.GetContext();
+                    // AcceptTcpClient blocks until a client connects
+                    var client = _listener.AcceptTcpClient();
 
                     // Handle request on thread pool
-                    ThreadPool.QueueUserWorkItem(_ => HandleRequest(context));
+                    ThreadPool.QueueUserWorkItem(_ => HandleClient(client));
                 }
-                catch (HttpListenerException)
+                catch (SocketException)
                 {
                     // Expected when stopping
                     if (_isRunning)
-                        Log("Listener exception occurred.");
+                        Log("Socket exception occurred.");
                 }
                 catch (Exception ex)
                 {
@@ -179,98 +177,201 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Handles an individual HTTP request.
+        /// Handles a connected client.
         /// </summary>
-        private void HandleRequest(HttpListenerContext context)
+        private void HandleClient(TcpClient client)
         {
-            var request = context.Request;
-            var response = context.Response;
+            try
+            {
+                using (client)
+                using (var stream = client.GetStream())
+                {
+                    // Set timeouts
+                    stream.ReadTimeout = 5000;
+                    stream.WriteTimeout = 5000;
+
+                    // Read HTTP request
+                    var request = ReadHttpRequest(stream);
+                    if (request == null)
+                    {
+                        return; // Invalid request
+                    }
+
+                    // Process request and get response
+                    var response = ProcessRequest(request);
+
+                    // Send response
+                    var responseBytes = Encoding.UTF8.GetBytes(response);
+                    stream.Write(responseBytes, 0, responseBytes.Length);
+                    stream.Flush();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error handling client: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Reads and parses an HTTP request from the stream.
+        /// </summary>
+        private HttpRequest ReadHttpRequest(NetworkStream stream)
+        {
+            try
+            {
+                var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, true);
+
+                // Read request line
+                var requestLine = reader.ReadLine();
+                if (string.IsNullOrEmpty(requestLine))
+                    return null;
+
+                var parts = requestLine.Split(' ');
+                if (parts.Length < 2)
+                    return null;
+
+                var request = new HttpRequest
+                {
+                    Method = parts[0].ToUpper(),
+                    Path = parts[1].ToLower(),
+                    Headers = new Dictionary<string, string>()
+                };
+
+                // Read headers
+                string line;
+                int contentLength = 0;
+                while (!string.IsNullOrEmpty(line = reader.ReadLine()))
+                {
+                    var colonIndex = line.IndexOf(':');
+                    if (colonIndex > 0)
+                    {
+                        var key = line.Substring(0, colonIndex).Trim().ToLower();
+                        var value = line.Substring(colonIndex + 1).Trim();
+                        request.Headers[key] = value;
+
+                        if (key == "content-length")
+                        {
+                            int.TryParse(value, out contentLength);
+                        }
+                    }
+                }
+
+                // Read body if present
+                if (contentLength > 0)
+                {
+                    var buffer = new char[contentLength];
+                    var read = reader.Read(buffer, 0, contentLength);
+                    request.Body = new string(buffer, 0, read);
+                }
+
+                return request;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error reading request: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Processes an HTTP request and returns the response string.
+        /// </summary>
+        private string ProcessRequest(HttpRequest request)
+        {
+            int statusCode = 200;
+            string statusText = "OK";
+            string contentType = "application/json";
+            string body;
 
             try
             {
-                // Add CORS headers for browser access
-                response.Headers.Add("Access-Control-Allow-Origin", "*");
-                response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
-
-                // Handle preflight
-                if (request.HttpMethod == "OPTIONS")
+                // Handle CORS preflight
+                if (request.Method == "OPTIONS")
                 {
-                    response.StatusCode = 200;
-                    response.Close();
-                    return;
+                    return BuildResponse(200, "OK", "text/plain", "",
+                        "Access-Control-Allow-Origin: *",
+                        "Access-Control-Allow-Methods: GET, POST, OPTIONS",
+                        "Access-Control-Allow-Headers: Content-Type");
                 }
 
-                var path = request.Url.AbsolutePath.ToLower();
-                var method = request.HttpMethod;
-
-                string responseBody;
-                string contentType = "application/json";
-
-                switch (path)
+                // Route request
+                switch (request.Path)
                 {
                     case "/status":
-                        responseBody = HandleStatus();
+                        body = HandleStatus();
                         break;
 
                     case "/health":
-                        responseBody = "ok";
+                        body = "ok";
                         contentType = "text/plain";
                         break;
 
                     case "/run":
-                        if (method != "POST")
+                        if (request.Method != "POST")
                         {
-                            response.StatusCode = 405;
-                            responseBody = JsonConvert.SerializeObject(new { error = "Method not allowed" });
+                            statusCode = 405;
+                            statusText = "Method Not Allowed";
+                            body = JsonConvert.SerializeObject(new { error = "Method not allowed" });
                         }
                         else
                         {
-                            responseBody = HandleRun(request);
+                            body = HandleRun(request.Body);
                         }
                         break;
 
                     case "/stop":
-                        if (method != "POST")
+                        if (request.Method != "POST")
                         {
-                            response.StatusCode = 405;
-                            responseBody = JsonConvert.SerializeObject(new { error = "Method not allowed" });
+                            statusCode = 405;
+                            statusText = "Method Not Allowed";
+                            body = JsonConvert.SerializeObject(new { error = "Method not allowed" });
                         }
                         else
                         {
-                            responseBody = HandleStop();
+                            body = HandleStop();
                         }
                         break;
 
                     default:
-                        response.StatusCode = 404;
-                        responseBody = JsonConvert.SerializeObject(new { error = "Not found" });
+                        statusCode = 404;
+                        statusText = "Not Found";
+                        body = JsonConvert.SerializeObject(new { error = "Not found" });
                         break;
                 }
-
-                // Send response
-                response.ContentType = contentType;
-                var buffer = Encoding.UTF8.GetBytes(responseBody);
-                response.ContentLength64 = buffer.Length;
-                response.OutputStream.Write(buffer, 0, buffer.Length);
             }
             catch (Exception ex)
             {
-                Log($"Error handling request: {ex.Message}");
-                try
-                {
-                    response.StatusCode = 500;
-                    var errorBody = JsonConvert.SerializeObject(new { error = ex.Message });
-                    var buffer = Encoding.UTF8.GetBytes(errorBody);
-                    response.ContentLength64 = buffer.Length;
-                    response.OutputStream.Write(buffer, 0, buffer.Length);
-                }
-                catch { }
+                Log($"Error processing request: {ex.Message}");
+                statusCode = 500;
+                statusText = "Internal Server Error";
+                body = JsonConvert.SerializeObject(new { error = ex.Message });
             }
-            finally
+
+            return BuildResponse(statusCode, statusText, contentType, body,
+                "Access-Control-Allow-Origin: *");
+        }
+
+        /// <summary>
+        /// Builds an HTTP response string.
+        /// </summary>
+        private string BuildResponse(int statusCode, string statusText, string contentType,
+            string body, params string[] extraHeaders)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"HTTP/1.1 {statusCode} {statusText}");
+            sb.AppendLine($"Content-Type: {contentType}; charset=utf-8");
+            sb.AppendLine($"Content-Length: {Encoding.UTF8.GetByteCount(body)}");
+            sb.AppendLine("Connection: close");
+
+            foreach (var header in extraHeaders)
             {
-                try { response.Close(); } catch { }
+                sb.AppendLine(header);
             }
+
+            sb.AppendLine(); // Empty line between headers and body
+            sb.Append(body);
+
+            return sb.ToString();
         }
 
         /// <summary>
@@ -309,15 +410,8 @@ namespace TheWrangler
         /// <summary>
         /// Handles POST /run - starts execution.
         /// </summary>
-        private string HandleRun(HttpListenerRequest request)
+        private string HandleRun(string body)
         {
-            // Read request body
-            string body;
-            using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
-            {
-                body = reader.ReadToEnd();
-            }
-
             if (string.IsNullOrWhiteSpace(body))
             {
                 return JsonConvert.SerializeObject(new { success = false, error = "Empty request body" });
@@ -394,6 +488,21 @@ namespace TheWrangler
 
             _controller.RequestStopGently();
             return JsonConvert.SerializeObject(new { success = true, message = "Stop requested" });
+        }
+
+        #endregion
+
+        #region Helper Classes
+
+        /// <summary>
+        /// Simple HTTP request representation.
+        /// </summary>
+        private class HttpRequest
+        {
+            public string Method { get; set; }
+            public string Path { get; set; }
+            public Dictionary<string, string> Headers { get; set; }
+            public string Body { get; set; }
         }
 
         #endregion
