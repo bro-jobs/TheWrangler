@@ -197,6 +197,46 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Queues raw JSON content for execution.
+        /// Used by the remote server to accept JSON directly.
+        /// </summary>
+        /// <param name="json">The raw JSON order content</param>
+        /// <returns>True if order was queued successfully</returns>
+        public bool QueueOrderJson(string json)
+        {
+            if (IsExecuting || HasPendingOrder)
+            {
+                OnLogMessage("Error: An order is already executing or pending.");
+                return false;
+            }
+
+            // Validate JSON isn't empty
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                OnStatusChanged("Error: Empty JSON");
+                OnLogMessage("Error: JSON content is empty.");
+                return false;
+            }
+
+            // Ensure API is initialized
+            if (!_lisbethApi.IsInitialized)
+            {
+                OnLogMessage("Lisbeth API not initialized, attempting to initialize...");
+                if (!Initialize())
+                {
+                    return false;
+                }
+            }
+
+            // Queue the order
+            PendingOrderJson = json;
+            OnStatusChanged("Order queued (remote)");
+            OnLogMessage("Order queued via remote API. Starting execution...");
+
+            return true;
+        }
+
+        /// <summary>
         /// Gets and clears the pending order data.
         /// Called by behavior tree when starting execution.
         /// </summary>
