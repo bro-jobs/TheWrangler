@@ -6,8 +6,12 @@ import os
 
 block_cipher = None
 
-# Check if custom icon exists
-icon_file = 'wrangler.ico' if os.path.exists('wrangler.ico') else None
+# Check if custom icon exists (supports .ico or .png)
+icon_file = None
+if os.path.exists('wrangler.ico'):
+    icon_file = 'wrangler.ico'
+elif os.path.exists('wrangler.png'):
+    icon_file = 'wrangler.png'  # PyInstaller auto-converts PNG to ICO
 
 a = Analysis(
     ['wrangler_master.py'],
