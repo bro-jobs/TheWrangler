@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>TheWrangler</AssemblyName>
+    <RootNamespace>TheWrangler</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="ff14bot">
+      <HintPath>..\..\ff14bot.exe</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Clio.Common">
+      <HintPath>..\..\Clio.Common.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Clio.Utilities">
+      <HintPath>..\..\Clio.Utilities.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="TreeSharp">
+      <HintPath>..\..\TreeSharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\Newtonsoft.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
