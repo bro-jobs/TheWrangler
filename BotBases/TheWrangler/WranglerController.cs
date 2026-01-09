@@ -21,7 +21,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
-using ff14bot.Behavior;
 using ff14bot.Helpers;
 
 namespace TheWrangler
@@ -330,7 +329,7 @@ namespace TheWrangler
         /// </summary>
         public void SyncStateWithBot()
         {
-            if (!TreeRoot.IsRunning)
+            if (!ff14bot.Behavior.TreeRoot.IsRunning)
             {
                 if (IsExecuting || HasPendingOrder)
                 {
