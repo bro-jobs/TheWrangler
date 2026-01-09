@@ -1989,6 +1989,7 @@ namespace TheWrangler
 
         /// <summary>
         /// Unlocks a single DoH/DoL class by completing its unlock quest.
+        /// Uses LlamaLibrary.Helpers.Navigation for NPC interaction.
         /// </summary>
         public async Task<bool> UnlockSingleClassAsync(ClassJobType job, CancellationToken token)
         {
@@ -2011,24 +2012,21 @@ namespace TheWrangler
 
             try
             {
-                // Step 1: Navigate to the guild zone
-                _controller.Log($"Navigating to zone {unlockInfo.ZoneId}...");
-                var navigated = await NavigateToLocationAsync(unlockInfo.ZoneId, unlockInfo.PickupLocation, token);
-                if (!navigated)
-                {
-                    _controller.Log($"Failed to navigate to {job} guild.");
-                    return false;
-                }
-
-                // Step 2: Handle prereq quest if not completed
+                // Step 1: Handle prereq quest if not completed
+                // Use LlamaLibrary's Navigation.GetToInteractNpcSelectString which handles
+                // navigation, NPC finding, interaction, and dialog all in one
                 if (!QuestLogManager.IsQuestCompleted(unlockInfo.PrereqQuestId))
                 {
                     _controller.SetDirective($"Unlocking {job}", "Talking to guild NPC...");
                     _controller.Log($"Completing prereq quest {unlockInfo.PrereqQuestId}...");
 
-                    // Talk to the NPC to trigger the prereq quest
-                    var locationStr = $"{unlockInfo.PickupLocation.X}, {unlockInfo.PickupLocation.Y}, {unlockInfo.PickupLocation.Z}";
-                    var talked = await TalkToNpcAsync(unlockInfo.PickupNpcId, locationStr, "0", token);
+                    // Navigation.GetToInteractNpcSelectString handles: GetTo, find NPC, move to range, interact, handle dialog
+                    var talked = await Navigation.GetToInteractNpcSelectString(
+                        unlockInfo.PickupNpcId,
+                        unlockInfo.ZoneId,
+                        unlockInfo.PickupLocation,
+                        0); // selectStringIndex 0 to select first option if prompted
+
                     if (!talked)
                     {
                         _controller.Log($"Failed to talk to NPC for prereq quest.");
@@ -2037,10 +2035,10 @@ namespace TheWrangler
 
                     // Wait for NPC to become targetable again after dialog
                     _controller.Log("Waiting for NPC to reset after dialog...");
-                    await Task.Delay(2000, token);
+                    await Coroutine.Sleep(2000);
                 }
 
-                // Step 3: Pick up unlock quest if not already completed and not in journal
+                // Step 2: Pick up unlock quest if not already completed and not in journal
                 if (!QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId))
                 {
                     if (!QuestLogManager.HasQuest((int)unlockInfo.UnlockQuestId))
@@ -2048,8 +2046,7 @@ namespace TheWrangler
                         _controller.SetDirective($"Unlocking {job}", "Picking up unlock quest...");
                         _controller.Log($"Picking up unlock quest {unlockInfo.UnlockQuestId}...");
 
-                        var locationStr = $"{unlockInfo.PickupLocation.X}, {unlockInfo.PickupLocation.Y}, {unlockInfo.PickupLocation.Z}";
-                        var pickedUp = await PickupQuestAsync(unlockInfo.UnlockQuestId, unlockInfo.PickupNpcId, locationStr, token);
+                        var pickedUp = await PickupQuestWithLlamaLibAsync(unlockInfo.UnlockQuestId, unlockInfo.PickupNpcId, unlockInfo.ZoneId, unlockInfo.PickupLocation, token);
                         if (!pickedUp)
                         {
                             _controller.Log($"Failed to pick up unlock quest.");
@@ -2057,20 +2054,13 @@ namespace TheWrangler
                         }
                     }
 
-                    // Step 4: Turn in unlock quest
+                    // Step 3: Turn in unlock quest
                     if (QuestLogManager.HasQuest((int)unlockInfo.UnlockQuestId))
                     {
                         _controller.SetDirective($"Unlocking {job}", "Turning in unlock quest...");
                         _controller.Log($"Turning in unlock quest {unlockInfo.UnlockQuestId}...");
 
-                        // Navigate to turn-in NPC if different location
-                        if (unlockInfo.TurnInNpcId != unlockInfo.PickupNpcId)
-                        {
-                            await NavigateToLocationAsync(unlockInfo.ZoneId, unlockInfo.TurnInLocation, token);
-                        }
-
-                        var turnInLocationStr = $"{unlockInfo.TurnInLocation.X}, {unlockInfo.TurnInLocation.Y}, {unlockInfo.TurnInLocation.Z}";
-                        var turnedIn = await TurnInQuestAsync(unlockInfo.UnlockQuestId, unlockInfo.TurnInNpcId, turnInLocationStr, -1, token);
+                        var turnedIn = await TurnInQuestWithLlamaLibAsync(unlockInfo.UnlockQuestId, unlockInfo.TurnInNpcId, unlockInfo.ZoneId, unlockInfo.TurnInLocation, -1, token);
                         if (!turnedIn)
                         {
                             _controller.Log($"Failed to turn in unlock quest.");
@@ -2113,6 +2103,197 @@ namespace TheWrangler
                 _controller.Log($"Error unlocking {job}: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Pick up a quest using LlamaLibrary's Navigation helpers.
+        /// Simplified version that uses Navigation.GetTo and handles JournalAccept.
+        /// </summary>
+        private async Task<bool> PickupQuestWithLlamaLibAsync(uint questId, uint npcId, ushort zoneId, Vector3 location, CancellationToken token)
+        {
+            // Check if we already have the quest
+            if (QuestLogManager.HasQuest((int)questId) || QuestLogManager.IsQuestCompleted(questId))
+            {
+                return true;
+            }
+
+            // Navigate to NPC using LlamaLibrary
+            if (!await Navigation.GetTo(zoneId, location))
+            {
+                _controller.Log($"PickupQuest: Failed to navigate to NPC location");
+                return false;
+            }
+
+            // Find and interact with NPC
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null)
+            {
+                // Wait for NPC to appear
+                await Coroutine.Wait(5000, () => GameObjectManager.GetObjectByNPCId(npcId) != null);
+                npc = GameObjectManager.GetObjectByNPCId(npcId);
+            }
+
+            if (npc == null)
+            {
+                _controller.Log($"PickupQuest: NPC not found");
+                return false;
+            }
+
+            // Move to interact range if needed
+            if (!npc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(npc);
+            }
+
+            npc.Target();
+            npc.Interact();
+
+            // Handle quest pickup dialog
+            var timeout = DateTime.Now.AddSeconds(30);
+            while (DateTime.Now < timeout && !QuestLogManager.HasQuest((int)questId))
+            {
+                if (token.IsCancellationRequested) return false;
+
+                if (Talk.DialogOpen)
+                {
+                    Talk.Next();
+                    await Coroutine.Wait(200, () => !Talk.DialogOpen);
+                    continue;
+                }
+
+                if (SelectString.IsOpen)
+                {
+                    SelectString.ClickSlot(0);
+                    await Coroutine.Wait(500, () => !SelectString.IsOpen);
+                    continue;
+                }
+
+                if (SelectYesno.IsOpen)
+                {
+                    SelectYesno.ClickYes();
+                    await Coroutine.Wait(500, () => !SelectYesno.IsOpen);
+                    continue;
+                }
+
+                if (JournalAccept.IsOpen)
+                {
+                    JournalAccept.Accept();
+                    await Coroutine.Wait(1000, () => !JournalAccept.IsOpen);
+                    continue;
+                }
+
+                await Coroutine.Yield();
+            }
+
+            return QuestLogManager.HasQuest((int)questId);
+        }
+
+        /// <summary>
+        /// Turn in a quest using LlamaLibrary's Navigation helpers.
+        /// Simplified version that uses Navigation.GetTo and handles JournalResult.
+        /// </summary>
+        private async Task<bool> TurnInQuestWithLlamaLibAsync(uint questId, uint npcId, ushort zoneId, Vector3 location, int rewardSlot, CancellationToken token)
+        {
+            // Check if quest is already completed
+            if (QuestLogManager.IsQuestCompleted(questId))
+            {
+                return true;
+            }
+
+            // Check if we have the quest
+            if (!QuestLogManager.HasQuest((int)questId))
+            {
+                _controller.Log($"TurnIn: Don't have quest {questId}");
+                return false;
+            }
+
+            // Navigate to NPC using LlamaLibrary
+            if (!await Navigation.GetTo(zoneId, location))
+            {
+                _controller.Log($"TurnIn: Failed to navigate to NPC location");
+                return false;
+            }
+
+            // Find and interact with NPC
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null)
+            {
+                await Coroutine.Wait(5000, () => GameObjectManager.GetObjectByNPCId(npcId) != null);
+                npc = GameObjectManager.GetObjectByNPCId(npcId);
+            }
+
+            if (npc == null)
+            {
+                _controller.Log($"TurnIn: NPC not found");
+                return false;
+            }
+
+            // Move to interact range if needed
+            if (!npc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(npc);
+            }
+
+            npc.Target();
+            npc.Interact();
+
+            // Handle quest turn-in dialog
+            var timeout = DateTime.Now.AddSeconds(30);
+            var rewardSelected = false;
+            while (DateTime.Now < timeout && !QuestLogManager.IsQuestCompleted(questId))
+            {
+                if (token.IsCancellationRequested) return false;
+
+                if (Talk.DialogOpen)
+                {
+                    Talk.Next();
+                    await Coroutine.Wait(200, () => !Talk.DialogOpen);
+                    continue;
+                }
+
+                if (SelectString.IsOpen)
+                {
+                    SelectString.ClickSlot(0);
+                    await Coroutine.Wait(500, () => !SelectString.IsOpen);
+                    continue;
+                }
+
+                if (SelectIconString.IsOpen)
+                {
+                    SelectIconString.ClickSlot(0);
+                    await Coroutine.Wait(500, () => !SelectIconString.IsOpen);
+                    continue;
+                }
+
+                if (SelectYesno.IsOpen)
+                {
+                    SelectYesno.ClickYes();
+                    await Coroutine.Wait(500, () => !SelectYesno.IsOpen);
+                    continue;
+                }
+
+                if (JournalResult.IsOpen)
+                {
+                    // Select reward if needed and not yet selected
+                    if (rewardSlot >= 0 && !rewardSelected && JournalResult.ButtonClickable)
+                    {
+                        JournalResult.SelectSlot(rewardSlot);
+                        rewardSelected = true;
+                        await Coroutine.Sleep(500);
+                    }
+
+                    if (JournalResult.ButtonClickable)
+                    {
+                        JournalResult.Complete();
+                        await Coroutine.Wait(1000, () => !JournalResult.IsOpen);
+                    }
+                    continue;
+                }
+
+                await Coroutine.Yield();
+            }
+
+            return QuestLogManager.IsQuestCompleted(questId);
         }
 
         #endregion
