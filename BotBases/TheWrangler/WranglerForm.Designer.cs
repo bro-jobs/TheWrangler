@@ -93,10 +93,18 @@ namespace TheWrangler
             this.lblLevelingStatus = new System.Windows.Forms.Label();
             this.txtLevelingLog = new System.Windows.Forms.RichTextBox();
 
+            // Debug Mode Tab
+            this.tabDebugMode = new System.Windows.Forms.TabPage();
+            this.lblDebugCommands = new System.Windows.Forms.Label();
+            this.txtDebugCommand = new System.Windows.Forms.TextBox();
+            this.btnRunDebugCommand = new System.Windows.Forms.Button();
+            this.txtDebugLog = new System.Windows.Forms.RichTextBox();
+
             this.pnlMain.SuspendLayout();
             this.tabControl.SuspendLayout();
             this.tabOrderMode.SuspendLayout();
             this.tabLevelingMode.SuspendLayout();
+            this.tabDebugMode.SuspendLayout();
             this.pnlLevelingStatus.SuspendLayout();
             this.pnlClassLevels.SuspendLayout();
             this.pnlMissingItems.SuspendLayout();
@@ -135,6 +143,7 @@ namespace TheWrangler
             | System.Windows.Forms.AnchorStyles.Right)));
             this.tabControl.Controls.Add(this.tabOrderMode);
             this.tabControl.Controls.Add(this.tabLevelingMode);
+            this.tabControl.Controls.Add(this.tabDebugMode);
             this.tabControl.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.tabControl.Location = new System.Drawing.Point(15, 55);
             this.tabControl.Name = "tabControl";
@@ -518,6 +527,79 @@ namespace TheWrangler
             this.txtLevelingLog.TabIndex = 6;
             this.txtLevelingLog.Text = "";
 
+            // ============================================
+            // DEBUG MODE TAB
+            // ============================================
+
+            //
+            // tabDebugMode - Debug Mode tab page
+            //
+            this.tabDebugMode.Controls.Add(this.lblDebugCommands);
+            this.tabDebugMode.Controls.Add(this.txtDebugCommand);
+            this.tabDebugMode.Controls.Add(this.btnRunDebugCommand);
+            this.tabDebugMode.Controls.Add(this.txtDebugLog);
+            this.tabDebugMode.Location = new System.Drawing.Point(4, 28);
+            this.tabDebugMode.Name = "tabDebugMode";
+            this.tabDebugMode.Padding = new System.Windows.Forms.Padding(10);
+            this.tabDebugMode.Size = new System.Drawing.Size(522, 435);
+            this.tabDebugMode.TabIndex = 2;
+            this.tabDebugMode.Text = "Debug Mode";
+            this.tabDebugMode.UseVisualStyleBackColor = true;
+
+            //
+            // lblDebugCommands - Debug commands help label
+            //
+            this.lblDebugCommands.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblDebugCommands.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblDebugCommands.Location = new System.Drawing.Point(10, 10);
+            this.lblDebugCommands.Name = "lblDebugCommands";
+            this.lblDebugCommands.Size = new System.Drawing.Size(502, 60);
+            this.lblDebugCommands.TabIndex = 0;
+            this.lblDebugCommands.Text = "Available commands:\r\n/test1 [job] - Test ChangeClass (e.g. /test1 Carpenter)\r\n/test2 [id] - Test TeleportTo (e.g. /test2 8 for Limsa)\r\n/test3 - Test Navigation (move forward 10 units)\r\n/test4 - Test NPC listing (list nearby NPCs)";
+
+            //
+            // txtDebugCommand - Debug command input
+            //
+            this.txtDebugCommand.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtDebugCommand.Font = new System.Drawing.Font("Consolas", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.txtDebugCommand.Location = new System.Drawing.Point(13, 80);
+            this.txtDebugCommand.Name = "txtDebugCommand";
+            this.txtDebugCommand.Size = new System.Drawing.Size(393, 26);
+            this.txtDebugCommand.TabIndex = 1;
+            this.txtDebugCommand.Text = "/test1 Carpenter";
+            this.txtDebugCommand.KeyDown += new System.Windows.Forms.KeyEventHandler(this.txtDebugCommand_KeyDown);
+
+            //
+            // btnRunDebugCommand - Run debug command button
+            //
+            this.btnRunDebugCommand.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnRunDebugCommand.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnRunDebugCommand.Location = new System.Drawing.Point(412, 75);
+            this.btnRunDebugCommand.Name = "btnRunDebugCommand";
+            this.btnRunDebugCommand.Size = new System.Drawing.Size(100, 35);
+            this.btnRunDebugCommand.TabIndex = 2;
+            this.btnRunDebugCommand.Text = "Run";
+            this.btnRunDebugCommand.UseVisualStyleBackColor = true;
+            this.btnRunDebugCommand.Click += new System.EventHandler(this.btnRunDebugCommand_Click);
+
+            //
+            // txtDebugLog - Debug log output
+            //
+            this.txtDebugLog.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtDebugLog.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.txtDebugLog.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.txtDebugLog.Location = new System.Drawing.Point(13, 120);
+            this.txtDebugLog.Name = "txtDebugLog";
+            this.txtDebugLog.ReadOnly = true;
+            this.txtDebugLog.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
+            this.txtDebugLog.Size = new System.Drawing.Size(493, 300);
+            this.txtDebugLog.TabIndex = 3;
+            this.txtDebugLog.Text = "";
+
             //
             // WranglerForm - Main form
             //
@@ -537,6 +619,8 @@ namespace TheWrangler
             this.pnlMissingItems.PerformLayout();
             this.tabLevelingMode.ResumeLayout(false);
             this.tabLevelingMode.PerformLayout();
+            this.tabDebugMode.ResumeLayout(false);
+            this.tabDebugMode.PerformLayout();
             this.tabOrderMode.ResumeLayout(false);
             this.tabOrderMode.PerformLayout();
             this.tabControl.ResumeLayout(false);
@@ -583,5 +667,12 @@ namespace TheWrangler
         private System.Windows.Forms.Button btnStopLeveling;
         private System.Windows.Forms.Label lblLevelingStatus;
         private System.Windows.Forms.RichTextBox txtLevelingLog;
+
+        // Debug Mode Tab controls
+        private System.Windows.Forms.TabPage tabDebugMode;
+        private System.Windows.Forms.Label lblDebugCommands;
+        private System.Windows.Forms.TextBox txtDebugCommand;
+        private System.Windows.Forms.Button btnRunDebugCommand;
+        private System.Windows.Forms.RichTextBox txtDebugLog;
     }
 }
