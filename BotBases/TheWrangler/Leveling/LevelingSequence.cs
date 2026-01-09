@@ -1,12 +1,12 @@
 /*
- * LevelingSequence.cs - DoH/DoL Leveling Execution Logic
- * =======================================================
+ * LevelingSequence.cs - DoH/DoL Leveling Orchestrator
+ * ====================================================
  *
- * Contains the main leveling loop logic for DoH/DoL classes.
- * Uses QuestInteraction classes for NPC interactions.
+ * High-level orchestrator for the DoH/DoL leveling sequence.
+ * Delegates to specialized classes for specific tasks.
  *
  * Main sequence:
- * 1. Unlock all classes (ClassUnlockData)
+ * 1. Unlock all classes (via ClassUnlocker)
  * 2. Level gatherers to 21
  * 3. Level crafters 1-21 with class quests
  * 4. Level 21-100 via Ishgard Diadem
@@ -20,6 +20,8 @@ using Buddy.Coroutines;
 using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
+using ff14bot.RemoteWindows;
+using LlamaLibrary.Helpers;
 using TheWrangler.Leveling.QuestInteractions;
 
 namespace TheWrangler.Leveling
@@ -31,12 +33,14 @@ namespace TheWrangler.Leveling
     {
         private readonly LevelingController _controller;
         private readonly LisbethApi _lisbethApi;
+        private readonly ClassUnlocker _classUnlocker;
 
         public LevelingSequence(LevelingController controller)
         {
             _controller = controller;
             _lisbethApi = new LisbethApi();
             _lisbethApi.Initialize();
+            _classUnlocker = new ClassUnlocker(controller);
         }
 
         #region Main Entry Point
@@ -47,7 +51,7 @@ namespace TheWrangler.Leveling
             {
                 // Step 1: Unlock all DoH/DoL classes
                 _controller.SetDirective("Unlocking Classes", "Checking for locked classes...");
-                if (!await UnlockAllClassesAsync(token))
+                if (!await _classUnlocker.UnlockAllClassesAsync(token))
                 {
                     _controller.Log("Failed to unlock all classes.");
                     return false;
@@ -94,108 +98,7 @@ namespace TheWrangler.Leveling
 
         #endregion
 
-        #region Step 1: Unlock Classes
-
-        private async Task<bool> UnlockAllClassesAsync(CancellationToken token)
-        {
-            var lockedClasses = ClassUnlockData.AllDohDolClasses
-                .Where(job => Core.Me.Levels[job] == 0)
-                .ToList();
-
-            if (lockedClasses.Count == 0)
-            {
-                _controller.Log("All DoH/DoL classes are already unlocked.");
-                return true;
-            }
-
-            _controller.Log($"Found {lockedClasses.Count} locked class(es): {string.Join(", ", lockedClasses)}");
-
-            foreach (var job in lockedClasses)
-            {
-                if (token.IsCancellationRequested) return false;
-
-                if (!await UnlockClassAsync(job, token))
-                {
-                    _controller.Log($"Failed to unlock {job}.");
-                    return false;
-                }
-
-                _controller.RefreshClassLevels();
-            }
-
-            return true;
-        }
-
-        private async Task<bool> UnlockClassAsync(ClassJobType job, CancellationToken token)
-        {
-            if (!ClassUnlockData.UnlockInfo.TryGetValue(job, out var info))
-            {
-                _controller.Log($"No unlock info for {job}.");
-                return false;
-            }
-
-            _controller.SetDirective($"Unlocking {job}", "Starting unlock sequence...");
-            _controller.Log($"Unlocking {job}...");
-
-            // Step 1: Complete prereq quest (talk to guild NPC)
-            if (!QuestLogManager.IsQuestCompleted(info.PrereqQuestId))
-            {
-                _controller.Log($"Completing prereq quest {info.PrereqQuestId}...");
-
-                var talkTo = new TalkToNpc(info.PickupNpcId, info.PrereqQuestId, info.ZoneId, info.PickupLocation);
-                if (!await talkTo.ExecuteAsync(token))
-                {
-                    _controller.Log("Failed to complete prereq quest.");
-                    return false;
-                }
-
-                await Coroutine.Sleep(1500);
-            }
-
-            // Step 2: Pickup the unlock quest
-            if (!QuestLogManager.IsQuestCompleted(info.UnlockQuestId) && !QuestLogManager.HasQuest((int)info.UnlockQuestId))
-            {
-                _controller.Log($"Picking up unlock quest {info.UnlockQuestId}...");
-
-                var pickup = new PickupQuest(info.PickupNpcId, info.UnlockQuestId, info.ZoneId, info.PickupLocation);
-                if (!await pickup.ExecuteAsync(token))
-                {
-                    _controller.Log("Failed to pickup unlock quest.");
-                    return false;
-                }
-            }
-
-            // Step 3: Turn in the unlock quest
-            if (QuestLogManager.HasQuest((int)info.UnlockQuestId))
-            {
-                _controller.Log($"Turning in unlock quest {info.UnlockQuestId}...");
-
-                var turnIn = new TurnInQuest(info.TurnInNpcId, info.UnlockQuestId, info.ZoneId, info.TurnInLocation);
-                if (!await turnIn.ExecuteAsync(token))
-                {
-                    _controller.Log("Failed to turn in unlock quest.");
-                    return false;
-                }
-
-                await Coroutine.Sleep(1500);
-            }
-
-            // Step 4: Change to the new class
-            if (QuestLogManager.IsQuestCompleted(info.UnlockQuestId) && Core.Me.CurrentJob != job)
-            {
-                _controller.Log($"Changing to {job}...");
-                await ChangeClassAsync(job, token);
-                await Coroutine.Sleep(2000);
-            }
-
-            var isUnlocked = Core.Me.Levels[job] > 0 || QuestLogManager.IsQuestCompleted(info.UnlockQuestId);
-            _controller.Log($"{job} unlock status: {(isUnlocked ? "Success" : "Failed")}");
-            return isUnlocked;
-        }
-
-        #endregion
-
-        #region Step 2-4: Leveling
+        #region Leveling
 
         private async Task<bool> LevelGatherersTo21Async(CancellationToken token)
         {
@@ -247,6 +150,8 @@ namespace TheWrangler.Leveling
                 _controller.Log($"Failed to change to {job}.");
                 return false;
             }
+
+            await GeneralFunctions.InventoryEquipBest(updateGearSet: true, useRecommendEquip: true);
 
             while (Core.Me.Levels[job] < targetLevel)
             {
@@ -355,7 +260,14 @@ namespace TheWrangler.Leveling
 
             _controller.Log($"Changing to {job}...");
             ChatManager.SendChat($"/gearset change {LevelingData.GetLisbethTypeName(job)}");
-            await Coroutine.Wait(5000, () => Core.Me.CurrentJob == job);
+
+            // Handle the confirmation dialog that may appear
+            await Coroutine.Wait(3000, () => SelectYesno.IsOpen || Core.Me.CurrentJob == job);
+            if (SelectYesno.IsOpen)
+            {
+                SelectYesno.Yes();
+                await Coroutine.Wait(5000, () => Core.Me.CurrentJob == job);
+            }
 
             return Core.Me.CurrentJob == job;
         }
