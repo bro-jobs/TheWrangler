@@ -4,11 +4,19 @@ A modular BotBase for RebornBuddy that wraps Lisbeth functionality, providing a 
 
 ## Features
 
+### Order Mode
 - **Simple UI** - Select a Lisbeth JSON file and run with one click
 - **Stop Gently** - Gracefully stop Lisbeth after the current action completes
 - **Remote Control** - Built-in HTTP server for controlling multiple instances over a network
 - **Master Control Program** - Python GUI application to manage up to 12+ Wrangler instances simultaneously
 - **Persistent Settings** - Remembers your last JSON file, window position, and preferences
+
+### Leveling Mode (NEW)
+- **Automated DoH/DoL Leveling** - Level all crafters and gatherers to 100 automatically
+- **Custom Profile Interpreter** - Bypasses OrderBot for greater control and flexibility
+- **Real-time Status Display** - Shows current directive, class levels, and progress
+- **Missing Items Checker** - Warns about items that must be manually obtained
+- **Direct Lisbeth Integration** - Executes crafting orders directly without profile system overhead
 
 ## Installation
 
@@ -54,12 +62,28 @@ The executable will be created in `WranglerMaster/dist/WranglerMaster.exe`
 
 ## Usage
 
-### Basic Usage
+### Order Mode (Basic Usage)
 
 1. Open TheWrangler UI (Settings button in RebornBuddy)
 2. Click **Browse** to select a Lisbeth order JSON file
 3. Click **Run** to execute the orders
 4. Use **Stop Gently** to gracefully stop after the current action
+
+### Leveling Mode
+
+Leveling Mode automatically levels all DoH (Disciples of Hand) and DoL (Disciples of Land) classes to 100.
+
+1. Open TheWrangler UI and select the **Leveling Mode** tab
+2. Review the **Class Levels** display showing current progress
+3. Click **Start Leveling** to begin
+4. Monitor the **Current Directive** to see what's being executed
+5. Check **Required Items** for things you need to obtain manually
+6. Use **Stop** to halt leveling when needed
+
+**Note:** Leveling Mode uses the DoH-DoL-Profiles submodule which must be initialized:
+```bash
+git submodule update --init --recursive
+```
 
 ### Remote Control
 
@@ -142,6 +166,16 @@ Settings are saved to:
 ## Roadmap
 
 The following features are planned for future development:
+
+### Leveling Mode Enhancements
+- **Lisbeth Error Recovery** - Automatic retry on "Max Sessions" and other errors
+- **Progress Persistence** - Save and resume leveling progress across sessions
+- **Dynamic Item Calculation** - Calculate exact quantities needed based on current levels
+- **Gear Upgrade Automation** - Automatic gear upgrades at level breakpoints (21, 41, 53, 63, 70, 80, 90)
+- **Diadem Integration** - Full support for Diadem leveling paths
+- **Class Quest Automation** - Complete class quests automatically when available
+
+See [LEVELING_MODE_TODO.md](LEVELING_MODE_TODO.md) for detailed implementation notes.
 
 ### Company Chest Integration
 - Automatic deposit/withdrawal of materials from Free Company chest
