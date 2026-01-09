@@ -21,6 +21,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using ff14bot.Behavior;
 using ff14bot.Helpers;
 
 namespace TheWrangler
@@ -171,6 +172,9 @@ namespace TheWrangler
                 return false;
             }
 
+            // Sync state in case bot stopped externally
+            SyncStateWithBot();
+
             if (IsExecuting || HasPendingOrder)
             {
                 OnLogMessage("Error: An order is already executing or pending.");
@@ -228,6 +232,9 @@ namespace TheWrangler
         /// <returns>True if order was queued successfully</returns>
         public bool QueueOrderJson(string json)
         {
+            // Sync state in case bot stopped externally
+            SyncStateWithBot();
+
             if (IsExecuting || HasPendingOrder)
             {
                 OnLogMessage("Error: An order is already executing or pending.");
@@ -316,6 +323,26 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Synchronizes controller state with actual bot running state.
+        /// If the bot is not running but our state says we're executing,
+        /// reset the state. This handles cases where the bot was stopped
+        /// externally (e.g., by Lisbeth itself stopping the bot).
+        /// </summary>
+        public void SyncStateWithBot()
+        {
+            if (!TreeRoot.IsRunning)
+            {
+                if (IsExecuting || HasPendingOrder)
+                {
+                    Log("Bot is not running but controller state was dirty. Resetting state.");
+                    PendingOrderJson = null;
+                    IsExecuting = false;
+                    OnStatusChanged("Ready");
+                }
+            }
+        }
+
+        /// <summary>
         /// Returns true if there are incomplete orders that can be resumed.
         /// </summary>
         public bool HasIncompleteOrders()
@@ -337,6 +364,11 @@ namespace TheWrangler
         /// <returns>True if resume was initiated successfully</returns>
         public bool ResumeIncompleteOrders()
         {
+            // Defensive: If bot is not running but state says we're executing,
+            // it means the bot stopped externally (e.g., Lisbeth stopped it).
+            // Reset the state to allow new operations.
+            SyncStateWithBot();
+
             if (IsExecuting || HasPendingOrder)
             {
                 OnLogMessage("Error: An order is already executing or pending.");

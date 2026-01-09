@@ -972,6 +972,10 @@ namespace TheWrangler
         /// </summary>
         private void UpdateUIState()
         {
+            // Sync controller state with bot running state
+            // This handles cases where bot was stopped externally (e.g., by Lisbeth)
+            _controller.SyncStateWithBot();
+
             // Order Mode
             btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
             btnResumeAll.Enabled = !_controller.IsExecuting && _controller.HasIncompleteOrders();
