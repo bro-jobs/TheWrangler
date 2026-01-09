@@ -22,7 +22,6 @@ using Clio.Utilities;
 using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
-using ff14bot.NeoProfiles.Tags;
 using LlamaLibrary.Helpers;
 using LlamaUtilities.OrderbotTags;
 
@@ -389,14 +388,14 @@ namespace TheWrangler.Leveling
             XYZ = location
         };
 
-        private static PickupQuestTag CreatePickupQuestTag(uint npcId, uint questId, Vector3 location) => new PickupQuestTag
+        private static LLPickUpQuest CreatePickupQuestTag(uint npcId, uint questId, Vector3 location) => new LLPickUpQuest
         {
             NpcId = (int)npcId,
             QuestId = (int)questId,
             XYZ = location
         };
 
-        private static TurnInQuestTag CreateTurnInQuestTag(uint npcId, uint questId, Vector3 location) => new TurnInQuestTag
+        private static LLTurnInTag CreateTurnInQuestTag(uint npcId, uint questId, Vector3 location) => new LLTurnInTag
         {
             NpcId = (int)npcId,
             QuestId = (int)questId,
