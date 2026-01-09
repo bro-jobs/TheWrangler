@@ -53,6 +53,7 @@ using ff14bot.Objects;
 using ff14bot.Pathing;
 using ff14bot.RemoteWindows;
 using TreeSharp;
+using TheWrangler.Leveling;
 
 namespace TheWrangler
 {
@@ -1891,6 +1892,198 @@ namespace TheWrangler
                 13 => new List<ItemUiCategory> { ItemUiCategory.Soul_Crystal },
                 _ => new List<ItemUiCategory>()
             };
+        }
+
+        #endregion
+
+        #region Class Unlock
+
+        /// <summary>
+        /// Gets a list of DoH/DoL classes that are not yet unlocked.
+        /// A class is unlocked if its level > 0.
+        /// </summary>
+        public List<ClassJobType> GetLockedClasses()
+        {
+            var locked = new List<ClassJobType>();
+
+            if (Core.Me == null)
+            {
+                return locked;
+            }
+
+            foreach (var job in ClassUnlockData.AllDohDolClasses)
+            {
+                if (Core.Me.Levels[job] == 0)
+                {
+                    locked.Add(job);
+                }
+            }
+
+            return locked;
+        }
+
+        /// <summary>
+        /// Unlocks all locked DoH/DoL classes.
+        /// </summary>
+        public async Task<bool> UnlockAllClassesAsync(CancellationToken token)
+        {
+            var lockedClasses = GetLockedClasses();
+
+            if (lockedClasses.Count == 0)
+            {
+                _controller.Log("All DoH/DoL classes are already unlocked.");
+                return true;
+            }
+
+            _controller.Log($"Found {lockedClasses.Count} locked class(es) to unlock: {string.Join(", ", lockedClasses)}");
+
+            foreach (var job in lockedClasses)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    return false;
+                }
+
+                var result = await UnlockSingleClassAsync(job, token);
+                if (!result)
+                {
+                    _controller.Log($"Failed to unlock {job}, stopping unlock sequence.");
+                    return false;
+                }
+
+                // Refresh class levels after each unlock
+                _controller.RefreshClassLevels();
+            }
+
+            _controller.Log("All classes successfully unlocked!");
+            return true;
+        }
+
+        /// <summary>
+        /// Unlocks a single DoH/DoL class by completing its unlock quest.
+        /// </summary>
+        public async Task<bool> UnlockSingleClassAsync(ClassJobType job, CancellationToken token)
+        {
+            // Check if already unlocked
+            if (Core.Me.Levels[job] > 0)
+            {
+                _controller.Log($"{job} is already unlocked (level {Core.Me.Levels[job]}).");
+                return true;
+            }
+
+            // Get unlock info
+            if (!ClassUnlockData.UnlockInfo.TryGetValue(job, out var unlockInfo))
+            {
+                _controller.Log($"No unlock info found for {job}.");
+                return false;
+            }
+
+            _controller.SetDirective($"Unlocking {job}", "Navigating to guild...");
+            _controller.Log($"Starting unlock sequence for {job}...");
+
+            try
+            {
+                // Step 1: Navigate to the guild zone
+                _controller.Log($"Navigating to zone {unlockInfo.ZoneId}...");
+                var navigated = await NavigateToLocationAsync(unlockInfo.ZoneId, unlockInfo.PickupLocation, token);
+                if (!navigated)
+                {
+                    _controller.Log($"Failed to navigate to {job} guild.");
+                    return false;
+                }
+
+                // Step 2: Handle prereq quest if not completed
+                if (!QuestLogManager.IsQuestCompleted(unlockInfo.PrereqQuestId))
+                {
+                    _controller.SetDirective($"Unlocking {job}", "Talking to guild NPC...");
+                    _controller.Log($"Completing prereq quest {unlockInfo.PrereqQuestId}...");
+
+                    // Talk to the NPC to trigger the prereq quest
+                    var locationStr = $"{unlockInfo.PickupLocation.X}, {unlockInfo.PickupLocation.Y}, {unlockInfo.PickupLocation.Z}";
+                    var talked = await TalkToNpcAsync(unlockInfo.PickupNpcId, locationStr, "0", token);
+                    if (!talked)
+                    {
+                        _controller.Log($"Failed to talk to NPC for prereq quest.");
+                        return false;
+                    }
+
+                    // Wait a moment for quest completion
+                    await Task.Delay(1000, token);
+                }
+
+                // Step 3: Pick up unlock quest if not already completed and not in journal
+                if (!QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId))
+                {
+                    if (!QuestLogManager.HasQuest((int)unlockInfo.UnlockQuestId))
+                    {
+                        _controller.SetDirective($"Unlocking {job}", "Picking up unlock quest...");
+                        _controller.Log($"Picking up unlock quest {unlockInfo.UnlockQuestId}...");
+
+                        var locationStr = $"{unlockInfo.PickupLocation.X}, {unlockInfo.PickupLocation.Y}, {unlockInfo.PickupLocation.Z}";
+                        var pickedUp = await PickupQuestAsync(unlockInfo.UnlockQuestId, unlockInfo.PickupNpcId, locationStr, token);
+                        if (!pickedUp)
+                        {
+                            _controller.Log($"Failed to pick up unlock quest.");
+                            return false;
+                        }
+                    }
+
+                    // Step 4: Turn in unlock quest
+                    if (QuestLogManager.HasQuest((int)unlockInfo.UnlockQuestId))
+                    {
+                        _controller.SetDirective($"Unlocking {job}", "Turning in unlock quest...");
+                        _controller.Log($"Turning in unlock quest {unlockInfo.UnlockQuestId}...");
+
+                        // Navigate to turn-in NPC if different location
+                        if (unlockInfo.TurnInNpcId != unlockInfo.PickupNpcId)
+                        {
+                            await NavigateToLocationAsync(unlockInfo.ZoneId, unlockInfo.TurnInLocation, token);
+                        }
+
+                        var turnInLocationStr = $"{unlockInfo.TurnInLocation.X}, {unlockInfo.TurnInLocation.Y}, {unlockInfo.TurnInLocation.Z}";
+                        var turnedIn = await TurnInQuestAsync(unlockInfo.UnlockQuestId, unlockInfo.TurnInNpcId, turnInLocationStr, -1, token);
+                        if (!turnedIn)
+                        {
+                            _controller.Log($"Failed to turn in unlock quest.");
+                            return false;
+                        }
+                    }
+                }
+
+                // Wait for quest to complete
+                await Task.Delay(1000, token);
+
+                // Verify quest is completed
+                if (!QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId))
+                {
+                    _controller.Log($"Unlock quest {unlockInfo.UnlockQuestId} did not complete as expected.");
+                    return false;
+                }
+
+                // Step 5: Change to the new class
+                _controller.SetDirective($"Unlocking {job}", "Switching to new class...");
+                _controller.Log($"Changing to {job}...");
+
+                var changed = await ChangeClassAsync(job.ToString(), true, token);
+                if (!changed)
+                {
+                    _controller.Log($"Failed to change to {job}.");
+                    return false;
+                }
+
+                // Step 6: Auto-equip best gear
+                _controller.SetDirective($"Unlocking {job}", "Equipping gear...");
+                _controller.Log($"Auto-equipping gear for {job}...");
+                await AutoEquipBestGearAsync(token);
+
+                _controller.Log($"Successfully unlocked {job}!");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"Error unlocking {job}: {ex.Message}");
+                return false;
+            }
         }
 
         #endregion
