@@ -208,6 +208,7 @@ namespace TheWrangler.Leveling
             try
             {
                 behavior.Start();
+                Logging.Write($"[TagExecutor] Behavior started: {behavior.GetType().Name}");
 
                 // Use reflection to call protected CreateBehavior method
                 var composite = CreateBehaviorMethod.Invoke(behavior, null) as Composite;
@@ -223,6 +224,7 @@ namespace TheWrangler.Leveling
                 composite.Start(context);
                 await Coroutine.Yield();
 
+                var tickCount = 0;
                 while (!behavior.IsDone && DateTime.Now < timeout)
                 {
                     if (token.IsCancellationRequested)
@@ -232,8 +234,11 @@ namespace TheWrangler.Leveling
                     }
 
                     var status = composite.Tick(context);
+                    tickCount++;
+
                     if (status != RunStatus.Running)
                     {
+                        Logging.Write($"[TagExecutor] Composite returned {status} after {tickCount} ticks, IsDone={behavior.IsDone}");
                         break;
                     }
 
@@ -243,7 +248,9 @@ namespace TheWrangler.Leveling
                 composite.Stop(context);
                 behavior.Done();
 
-                return successCondition();
+                var result = successCondition();
+                Logging.Write($"[TagExecutor] Finished after {tickCount} ticks, success={result}");
+                return result;
             }
             catch (Exception ex)
             {
