@@ -164,6 +164,13 @@ namespace TheWrangler.Leveling
             type.GetProperty("NpcId")?.SetValue(tag, (int)npcId);
             type.GetProperty("QuestId")?.SetValue(tag, (int)questId);
             type.GetProperty("XYZ")?.SetValue(tag, location);
+
+            // Set DialogOption to empty array (DefaultValue attribute doesn't work with Activator.CreateInstance)
+            var dialogOptionProp = type.GetProperty("DialogOption");
+            if (dialogOptionProp != null && dialogOptionProp.GetValue(tag) == null)
+            {
+                dialogOptionProp.SetValue(tag, new int[0]);
+            }
         }
 
         /// <summary>
