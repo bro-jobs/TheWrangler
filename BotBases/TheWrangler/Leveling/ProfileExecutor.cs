@@ -1153,7 +1153,7 @@ namespace TheWrangler
                     gearSet.Activate();
 
                     // Wait for dialog to potentially appear
-                    await Task.Delay(500, token);
+                    await Task.Delay(2000, token);
 
                     // Handle "item not found, replace?" dialogs - there may be multiple
                     // Keep clicking Yes until no more dialogs appear or we've changed class
