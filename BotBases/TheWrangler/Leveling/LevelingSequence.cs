@@ -3,8 +3,7 @@
  * =======================================================
  *
  * Contains the main leveling loop logic for DoH/DoL classes.
- * Uses TagExecutor to run ProfileBehaviors (PickupQuestTag, TurnInQuestTag, LLTalkTo)
- * without reimplementing any quest logic.
+ * Uses QuestInteraction classes for NPC interactions.
  *
  * Main sequence:
  * 1. Unlock all classes (ClassUnlockData)
@@ -18,11 +17,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Buddy.Coroutines;
-using Clio.Utilities;
 using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
-using LlamaLibrary.Helpers;
+using TheWrangler.Leveling.QuestInteractions;
 
 namespace TheWrangler.Leveling
 {
@@ -144,7 +142,8 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Completing prereq quest {info.PrereqQuestId}...");
 
-                if (!await TagExecutor.TalkToNpcAsync(info.PickupNpcId, info.PrereqQuestId, info.ZoneId, info.PickupLocation, token))
+                var talkTo = new TalkToNpc(info.PickupNpcId, info.PrereqQuestId, info.ZoneId, info.PickupLocation);
+                if (!await talkTo.ExecuteAsync(token))
                 {
                     _controller.Log("Failed to complete prereq quest.");
                     return false;
@@ -158,7 +157,8 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Picking up unlock quest {info.UnlockQuestId}...");
 
-                if (!await TagExecutor.PickupQuestAsync(info.PickupNpcId, info.UnlockQuestId, info.ZoneId, info.PickupLocation, token))
+                var pickup = new PickupQuest(info.PickupNpcId, info.UnlockQuestId, info.ZoneId, info.PickupLocation);
+                if (!await pickup.ExecuteAsync(token))
                 {
                     _controller.Log("Failed to pickup unlock quest.");
                     return false;
@@ -170,7 +170,8 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Turning in unlock quest {info.UnlockQuestId}...");
 
-                if (!await TagExecutor.TurnInQuestAsync(info.TurnInNpcId, info.UnlockQuestId, info.ZoneId, info.TurnInLocation, token))
+                var turnIn = new TurnInQuest(info.TurnInNpcId, info.UnlockQuestId, info.ZoneId, info.TurnInLocation);
+                if (!await turnIn.ExecuteAsync(token))
                 {
                     _controller.Log("Failed to turn in unlock quest.");
                     return false;
@@ -321,7 +322,8 @@ namespace TheWrangler.Leveling
             // Pick up quest
             if (!QuestLogManager.HasQuest((int)quest.QuestId) && !QuestLogManager.IsQuestCompleted(quest.QuestId))
             {
-                if (!await TagExecutor.PickupQuestAsync(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation, token))
+                var pickup = new PickupQuest(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation);
+                if (!await pickup.ExecuteAsync(token))
                 {
                     _controller.Log("Failed to pickup class quest.");
                     return false;
@@ -331,7 +333,8 @@ namespace TheWrangler.Leveling
             // Turn in quest
             if (QuestLogManager.HasQuest((int)quest.QuestId))
             {
-                if (!await TagExecutor.TurnInQuestAsync(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation, token))
+                var turnIn = new TurnInQuest(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation);
+                if (!await turnIn.ExecuteAsync(token))
                 {
                     _controller.Log("Failed to turn in class quest.");
                     return false;

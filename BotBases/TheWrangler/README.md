@@ -175,6 +175,61 @@ RebornBuddy uses `Buddy.Coroutines` which has strict rules:
 Lisbeth's `ExecuteOrders` returns a coroutine-compatible Task<bool>, so you
 can await it directly. It internally uses the coroutine system.
 
+#### 6. CRITICAL - ProfileBehavior Execution Limitations
+
+**The Problem:**
+RebornBuddy's ProfileBehaviors (like `PickupQuestTag`, `TalkToTag`, `TurnInTag`) use
+`ActionRunCoroutine` internally to wrap async operations like movement. When you try
+to execute these ProfileBehaviors from your own BotBase by manually ticking their
+composites, the nested `ActionRunCoroutine` nodes **will not work**.
+
+**Why This Happens:**
+```
+RebornBuddy's Tick Loop
+    │
+    ▼
+BotBase.Root (ActionRunCoroutine wrapping your async method)
+    │
+    ├─ Your async method calls await Coroutine.Yield()
+    │   └─ RebornBuddy's scheduler resumes YOUR coroutine next frame
+    │
+    └─ You manually tick ProfileBehavior's composite
+        │
+        └─ ProfileBehavior's ActionRunCoroutine creates its own Task
+            │
+            └─ That Task calls await Coroutine.Yield()
+                └─ ⚠️ RebornBuddy doesn't know about THIS Task!
+                   It never gets resumed.
+```
+
+When `ActionRunCoroutine.Tick()` is called, it starts an async Task. That Task awaits
+on `Coroutine.Yield()` or similar, expecting RebornBuddy's scheduler to resume it.
+But RebornBuddy only knows about the outer coroutine (your BotBase's async method).
+The inner coroutine is orphaned and never advances.
+
+**The Solution:**
+Instead of trying to execute ProfileBehaviors by ticking their composites, use
+LlamaLibrary's async navigation helpers directly. These are designed to be called
+from async contexts and work correctly with RebornBuddy's scheduler.
+
+See: `Leveling/QuestInteractions/` for implementation:
+- `QuestInteractionBase.cs` - Base class with common navigation/dialog handling
+- `PickupQuest.cs` - Quest pickup interaction
+- `TurnInQuest.cs` - Quest turn-in interaction
+- `TalkToNpc.cs` - NPC dialog interaction
+
+**Key LlamaLibrary Helpers:**
+- `Navigation.GetTo(zoneId, location)` - Navigate to a location
+- `Navigation.OffMeshMoveInteract(npc)` - Move to and interact with NPC
+- `GeneralFunctions.SmallTalk()` - Handle dialog windows
+
+**What DOES Work:**
+ProfileBehaviors that use **synchronous** composites (like `CommonBehaviors.MoveAndStop`)
+can be manually ticked. For example, `LLTurnInTag` uses `CommonBehaviors.MoveAndStop`
+instead of `ActionRunCoroutine`, so it could theoretically be ticked manually.
+However, for consistency and reliability, we use the async helper pattern for all
+quest interactions.
+
 ---
 
 ## Extending TheWrangler
