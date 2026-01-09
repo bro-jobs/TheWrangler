@@ -113,7 +113,7 @@ namespace TheWrangler.Leveling
                 return (ProfileBehavior)tag;
             }
 
-            return new TurnInQuestTag
+            return new TurnInTag
             {
                 NpcId = (int)npcId,
                 QuestId = (int)questId,
