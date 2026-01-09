@@ -125,6 +125,8 @@ Log($"Stopped. Final location: {Core.Me.Location}");
 **IMPORTANT:** Use `GameObjectManager.GameObjects` NOT `GetObjectsOfType<T>()`.
 `GetObjectsOfType` returns empty results while `GameObjects` works correctly.
 
+**Note:** `GameObjectManager.GetObjectsByNPCId(npcId)` works correctly (tested).
+
 ### Dialog Windows
 - `Talk.DialogOpen` / `Talk.Next()` - Dialog text
 - `SelectYesno.IsOpen` / `SelectYesno.ClickYes()` - Yes/No prompts
@@ -176,7 +178,7 @@ await AutoEquipBestGearAsync(token);
 
 ### API Testing Status
 - `Core.Me.Levels[ClassJobType.X]` - **TESTED** ✓ (level > 0 = unlocked)
-- `QuestLogManager.IsQuestCompleted(questId)` - **PENDING** (test with /unlock command)
+- `QuestLogManager.IsQuestCompleted(questId)` - **TESTED** ✓ (verified with /unlock command)
 
 ### Unlock Quest IDs and NPC Locations
 

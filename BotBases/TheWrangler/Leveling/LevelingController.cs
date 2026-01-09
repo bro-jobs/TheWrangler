@@ -305,7 +305,31 @@ namespace TheWrangler
             {
                 Log("Starting DoH/DoL leveling process...");
 
-                // Load and parse Start.xml
+                // Step 1: Unlock any locked DoH/DoL classes first
+                SetDirective("Checking Classes", "Checking for locked classes...");
+                var lockedClasses = _executor.GetLockedClasses();
+
+                if (lockedClasses.Count > 0)
+                {
+                    Log($"Found {lockedClasses.Count} locked class(es). Starting unlock sequence...");
+                    SetDirective("Unlocking Classes", $"Unlocking {lockedClasses.Count} class(es)...");
+
+                    var unlockSuccess = await _executor.UnlockAllClassesAsync(token);
+                    if (!unlockSuccess)
+                    {
+                        Log("ERROR: Failed to unlock all classes. Stopping leveling.");
+                        return;
+                    }
+
+                    Log("All locked classes have been unlocked.");
+                    RefreshClassLevels();
+                }
+                else
+                {
+                    Log("All DoH/DoL classes are already unlocked.");
+                }
+
+                // Step 2: Load and parse Start.xml
                 var startXmlPath = Path.Combine(ProfilesBasePath, "Start.xml");
                 if (!File.Exists(startXmlPath))
                 {
@@ -326,7 +350,7 @@ namespace TheWrangler
 
                 Log($"Profile loaded with {profile.Elements.Count} top-level elements");
 
-                // Execute the profile
+                // Step 3: Execute the profile
                 SetDirective("Running", "Executing leveling profile...");
                 success = await _executor.ExecuteProfileAsync(profile, token);
 
