@@ -30,6 +30,7 @@
  */
 
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -175,6 +176,12 @@ namespace TheWrangler
         /// </summary>
         private async Task<bool> MainLoopAsync()
         {
+            // Process any pending debug commands (runs on bot thread for memory access)
+            while (_controller.TryGetDebugCommand(out var debugCmd))
+            {
+                ExecuteDebugCommand(debugCmd);
+            }
+
             // Check if there's a pending order to execute
             if (_controller.HasPendingOrder)
             {
@@ -225,6 +232,81 @@ namespace TheWrangler
                 Logging.WriteException(ex);
                 _controller.OnOrderExecutionError(ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Executes a debug command on the bot thread.
+        /// This allows full access to GameObjectManager and other memory-based APIs.
+        /// </summary>
+        private void ExecuteDebugCommand(DebugCommand cmd)
+        {
+            try
+            {
+                var result = cmd.Command.ToLower() switch
+                {
+                    "/test4" => ExecuteDebugTest4_ListNpcs(),
+                    _ => $"Unknown bot-thread command: {cmd.Command}"
+                };
+
+                cmd.ResultCallback?.Invoke(result);
+            }
+            catch (Exception ex)
+            {
+                cmd.ResultCallback?.Invoke($"Error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Test 4: List nearby NPCs (runs on bot thread for memory access).
+        /// </summary>
+        private string ExecuteDebugTest4_ListNpcs()
+        {
+            var results = new System.Text.StringBuilder();
+
+            if (Core.Me == null)
+            {
+                return "Character not loaded.";
+            }
+
+            results.AppendLine($"Character: {Core.Me.Name}, Location: {Core.Me.Location}");
+
+            // Get NPCs - this now works because we're on the bot thread
+            var npcs = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
+                .Where(o => o.IsVisible &&
+                           (o.Type == ff14bot.Enums.GameObjectType.EventNpc ||
+                            o.Type == ff14bot.Enums.GameObjectType.BattleNpc ||
+                            o.NpcId > 0))
+                .OrderBy(o => o.Distance())
+                .Take(10)
+                .ToList();
+
+            if (npcs.Count == 0)
+            {
+                // Check for any visible objects
+                var allVisible = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
+                    .Where(o => o.IsVisible)
+                    .ToList();
+
+                if (allVisible.Count == 0)
+                {
+                    results.AppendLine("No visible game objects found.");
+                }
+                else
+                {
+                    var types = allVisible.GroupBy(o => o.Type).Select(g => $"{g.Key}: {g.Count()}");
+                    results.AppendLine($"No NPCs found. Visible objects: {string.Join(", ", types)}");
+                }
+            }
+            else
+            {
+                results.AppendLine($"Found {npcs.Count} NPC(s):");
+                foreach (var npc in npcs)
+                {
+                    results.AppendLine($"  {npc.Name} (ID: {npc.NpcId}, Type: {npc.Type}) - Distance: {npc.Distance():F1}");
+                }
+            }
+
+            return results.ToString();
         }
 
         #endregion

@@ -19,11 +19,22 @@
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using ff14bot.Helpers;
 
 namespace TheWrangler
 {
+    /// <summary>
+    /// Represents a debug command to be executed on the bot thread.
+    /// </summary>
+    public class DebugCommand
+    {
+        public string Command { get; set; }
+        public string Argument { get; set; }
+        public Action<string> ResultCallback { get; set; }
+    }
+
     /// <summary>
     /// Controller class that coordinates between the UI and Lisbeth API.
     /// </summary>
@@ -32,6 +43,7 @@ namespace TheWrangler
         #region Fields
 
         private readonly LisbethApi _lisbethApi;
+        private readonly ConcurrentQueue<DebugCommand> _debugCommandQueue = new ConcurrentQueue<DebugCommand>();
 
         #endregion
 
@@ -85,6 +97,11 @@ namespace TheWrangler
         /// Get the Lisbeth API for direct execution by behavior tree.
         /// </summary>
         public LisbethApi LisbethApi => _lisbethApi;
+
+        /// <summary>
+        /// Returns true if there are pending debug commands.
+        /// </summary>
+        public bool HasPendingDebugCommand => !_debugCommandQueue.IsEmpty;
 
         #endregion
 
@@ -331,6 +348,35 @@ namespace TheWrangler
 
             // Fire-and-forget - we just signal Lisbeth to stop
             _lisbethApi.RequestStopGently();
+        }
+
+        #endregion
+
+        #region Debug Commands
+
+        /// <summary>
+        /// Queues a debug command to be executed on the bot thread.
+        /// </summary>
+        /// <param name="command">The command (e.g., "/test4")</param>
+        /// <param name="argument">Optional argument</param>
+        /// <param name="resultCallback">Callback to receive results (called on bot thread)</param>
+        public void QueueDebugCommand(string command, string argument, Action<string> resultCallback)
+        {
+            _debugCommandQueue.Enqueue(new DebugCommand
+            {
+                Command = command,
+                Argument = argument,
+                ResultCallback = resultCallback
+            });
+        }
+
+        /// <summary>
+        /// Tries to dequeue a pending debug command.
+        /// Called by behavior tree on bot thread.
+        /// </summary>
+        public bool TryGetDebugCommand(out DebugCommand command)
+        {
+            return _debugCommandQueue.TryDequeue(out command);
         }
 
         #endregion

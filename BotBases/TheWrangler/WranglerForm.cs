@@ -749,54 +749,32 @@ namespace TheWrangler
 
         /// <summary>
         /// Test 4: List nearby NPCs.
+        /// Queues command to run on bot thread for proper memory access.
         /// </summary>
         private void ExecuteTest4_ListNpcs()
         {
-            LogToDebugUI("Test 4: Listing nearby NPCs...", Color.LightGreen);
+            LogToDebugUI("Test 4: Listing nearby NPCs (queuing to bot thread)...", Color.LightGreen);
 
-            // Check if game is attached
-            if (ff14bot.Core.Me == null)
+            // Check if bot is running
+            if (!TheWranglerBotBase.IsBotRunning)
             {
-                LogToDebugUI("Character not loaded. Make sure FFXIV is running and you're logged in.", Color.Orange);
+                LogToDebugUI("Bot is not running. Start the bot first to use /test4.", Color.Orange);
+                LogToDebugUI("(Memory reads require the bot thread to be active)", Color.LightBlue);
                 return;
             }
 
-            LogToDebugUI($"Character: {ff14bot.Core.Me.Name}, Location: {ff14bot.Core.Me.Location}", Color.White);
-
-            // Get all game objects - need to use GetObjectsOfType for proper enumeration
-            var npcs = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
-                .Where(o => o.IsVisible &&
-                           (o.Type == ff14bot.Enums.GameObjectType.EventNpc ||
-                            o.Type == ff14bot.Enums.GameObjectType.BattleNpc ||
-                            o.NpcId > 0))
-                .OrderBy(o => o.Distance())
-                .Take(10)
-                .ToList();
-
-            if (npcs.Count == 0)
+            // Queue command to run on bot thread
+            _controller.QueueDebugCommand("/test4", "", result =>
             {
-                // Try to get any visible objects for debugging
-                var allVisible = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
-                    .Where(o => o.IsVisible)
-                    .ToList();
-
-                if (allVisible.Count == 0)
+                // This callback is called from bot thread, so we need to marshal to UI
+                LogToDebugUI("Results from bot thread:", Color.LightGreen);
+                foreach (var line in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    LogToDebugUI("No visible game objects found. This may be a threading issue - try using RebornConsole instead.", Color.Orange);
+                    LogToDebugUI($"  {line}", Color.FromArgb(180, 220, 180));
                 }
-                else
-                {
-                    var types = allVisible.GroupBy(o => o.Type).Select(g => $"{g.Key}: {g.Count()}");
-                    LogToDebugUI($"No NPCs, but found {allVisible.Count} objects: {string.Join(", ", types)}", Color.Orange);
-                }
-                return;
-            }
+            });
 
-            LogToDebugUI($"Found {npcs.Count} NPC(s):", Color.White);
-            foreach (var npc in npcs)
-            {
-                LogToDebugUI($"  {npc.Name} (ID: {npc.NpcId}, Type: {npc.Type}) - Distance: {npc.Distance():F1}", Color.FromArgb(180, 220, 180));
-            }
+            LogToDebugUI("Command queued. Results will appear shortly...", Color.LightBlue);
         }
 
         /// <summary>
@@ -808,12 +786,14 @@ namespace TheWrangler
             LogToDebugUI("  /test1 [job]  - Change class (e.g. /test1 Carpenter)", Color.White);
             LogToDebugUI("  /test2 [id]   - Teleport to aetheryte (e.g. /test2 8)", Color.White);
             LogToDebugUI("  /test3        - Start navigation (move forward)", Color.White);
-            LogToDebugUI("  /test4        - List nearby NPCs", Color.White);
+            LogToDebugUI("  /test4        - List nearby NPCs (requires bot running)", Color.White);
             LogToDebugUI("  /stop         - Stop movement", Color.White);
             LogToDebugUI("  /help         - Show this help", Color.White);
             LogToDebugUI("", Color.White);
             LogToDebugUI("Common Aetheryte IDs:", Color.LightBlue);
             LogToDebugUI("  2=Gridania, 8=Limsa Lominsa, 9=Ul'dah", Color.White);
+            LogToDebugUI("", Color.White);
+            LogToDebugUI("Note: /test4 requires bot to be started (Start button) for memory access.", Color.LightBlue);
         }
 
         #endregion
