@@ -183,6 +183,12 @@ namespace TheWrangler
                 ExecuteDebugCommand(debugCmd);
             }
 
+            // Check for pending stop gently request (process on bot thread)
+            if (_controller.PendingStopGently)
+            {
+                await _controller.ExecuteStopGentlyAsync();
+            }
+
             // Check if there's a pending order to execute
             if (_controller.HasPendingOrder)
             {
