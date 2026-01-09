@@ -918,19 +918,9 @@ namespace TheWrangler
                         return true;
                     }
 
-                    // Get path within the zone
+                    // Use Navigator.MoveTo for in-zone navigation (more reliable than NavGraph)
                     _controller.Log($"GetTo: Navigating to {targetLocation}");
-                    var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
-                    if (path != null && path.Count > 0)
-                    {
-                        return await ExecuteNavGraphPathAsync(path, token);
-                    }
-                    else
-                    {
-                        // Try direct movement
-                        _controller.Log("GetTo: No nav path, trying direct movement");
-                        return await MoveToLocationAsync(targetLocation, token);
-                    }
+                    return await NavigateWithinZoneAsync(targetLocation, token);
                 }
 
                 _controller.Log($"GetTo: Zone mismatch - expected {zoneId}, got {WorldManager.ZoneId}");
@@ -999,6 +989,74 @@ namespace TheWrangler
             Navigator.Stop();
 
             return Core.Me.Location.Distance(targetLocation) <= tolerance;
+        }
+
+        /// <summary>
+        /// Navigate to a location within the current zone using Navigator.MoveTo.
+        /// This is more reliable than NavGraph for in-zone navigation.
+        /// </summary>
+        private async Task<bool> NavigateWithinZoneAsync(Vector3 targetLocation, CancellationToken token, float tolerance = 3f)
+        {
+            var timeout = 120000; // 2 minutes max
+            var elapsed = 0;
+            var stuckCheckInterval = 5000;
+            var lastPosition = Core.Me?.Location ?? Vector3.Zero;
+            var lastStuckCheck = 0;
+
+            while (elapsed < timeout)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    Navigator.Stop();
+                    return false;
+                }
+
+                // Check if we've arrived
+                var currentDistance = Core.Me?.Location.Distance(targetLocation) ?? float.MaxValue;
+                if (currentDistance < tolerance)
+                {
+                    Navigator.Stop();
+                    _controller.Log($"GetTo: Arrived at destination (distance: {currentDistance:F1})");
+                    return true;
+                }
+
+                // Use Navigator.MoveTo which handles pathfinding
+                var moveResult = Navigator.MoveTo(targetLocation);
+
+                // Check if we're stuck (haven't moved in 5 seconds)
+                if (elapsed - lastStuckCheck >= stuckCheckInterval)
+                {
+                    var currentPos = Core.Me?.Location ?? Vector3.Zero;
+                    var movedDistance = currentPos.Distance(lastPosition);
+                    if (movedDistance < 1f && currentDistance > tolerance)
+                    {
+                        _controller.Log($"GetTo: Possibly stuck, trying to unstick...");
+                        // Try jumping or moving randomly to unstick
+                        Navigator.Stop();
+                        await Task.Delay(500, token);
+
+                        // Try moving directly for a bit
+                        Navigator.PlayerMover.MoveTowards(targetLocation);
+                        await Task.Delay(1000, token);
+                        Navigator.PlayerMover.MoveStop();
+                    }
+                    lastPosition = currentPos;
+                    lastStuckCheck = elapsed;
+                }
+
+                await Task.Delay(100, token);
+                elapsed += 100;
+
+                // Log progress every 10 seconds
+                if (elapsed % 10000 == 0)
+                {
+                    _controller.Log($"GetTo: Still navigating... Distance: {currentDistance:F1}");
+                }
+            }
+
+            Navigator.Stop();
+            _controller.Log($"GetTo: Navigation timeout after {timeout / 1000} seconds");
+            return false;
         }
 
         /// <summary>
