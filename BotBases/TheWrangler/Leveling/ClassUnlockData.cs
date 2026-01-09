@@ -51,20 +51,27 @@ namespace TheWrangler.Leveling
     {
         /// <summary>
         /// All DoH/DoL classes that can be unlocked.
+        /// Ordered by city to minimize teleporting:
+        /// Limsa Lominsa → Gridania → Ul'dah
         /// </summary>
         public static readonly ClassJobType[] AllDohDolClasses = new[]
         {
-            ClassJobType.Carpenter,
-            ClassJobType.Blacksmith,
-            ClassJobType.Armorer,
-            ClassJobType.Goldsmith,
-            ClassJobType.Leatherworker,
-            ClassJobType.Weaver,
-            ClassJobType.Alchemist,
-            ClassJobType.Culinarian,
-            ClassJobType.Miner,
-            ClassJobType.Botanist,
-            ClassJobType.Fisher
+            // Limsa Lominsa (zones 128-129)
+            ClassJobType.Fisher,      // 129 - Lower Decks
+            ClassJobType.Culinarian,  // 128 - Upper Decks
+            ClassJobType.Armorer,     // 128 - Upper Decks
+            ClassJobType.Blacksmith,  // 128 - Upper Decks
+
+            // Gridania (zones 132-133)
+            ClassJobType.Carpenter,    // 132 - New Gridania
+            ClassJobType.Leatherworker,// 133 - Old Gridania
+            ClassJobType.Botanist,     // 133 - Old Gridania
+
+            // Ul'dah (zone 131)
+            ClassJobType.Goldsmith,   // 131 - Steps of Thal
+            ClassJobType.Weaver,      // 131 - Steps of Thal
+            ClassJobType.Alchemist,   // 131 - Steps of Thal
+            ClassJobType.Miner        // 131 - Steps of Thal
         };
 
         /// <summary>
