@@ -10,3 +10,6 @@
 [submodule "Quest Behaviors/__LlamaLibrary"]
 	path = Quest Behaviors/__LlamaLibrary
 	url = https://github.com/nt153133/__LlamaLibrary.git
+[submodule "Profiles/DoH-DoL-Profiles"]
+	path = Profiles/DoH-DoL-Profiles
+	url = https://github.com/bro-jobs/DoH-DoL-Profiles.git
