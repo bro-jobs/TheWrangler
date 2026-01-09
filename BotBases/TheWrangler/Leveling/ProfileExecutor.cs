@@ -1311,24 +1311,39 @@ namespace TheWrangler
 
             try
             {
-                // Find the NPC
-                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
-                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                // Find the NPC - with retry since NPCs can be temporarily untargetable
+                GameObject npc = null;
+                var retryCount = 0;
+                var maxRetries = 10;
 
-                // If NPC not found and we have a location hint, navigate there
-                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                while (npc == null && retryCount < maxRetries)
                 {
-                    _controller.Log($"TalkTo: NPC not visible, navigating to hint location");
-                    await MoveToLocationAsync(location, token, 5f);
+                    if (token.IsCancellationRequested) return false;
 
-                    // Try to find NPC again
                     npc = GameObjectManager.GetObjectsByNPCId(npcId)
                         .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                    if (npc == null)
+                    {
+                        // Navigate to hint location on first attempt
+                        if (retryCount == 0 && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                        {
+                            _controller.Log($"TalkTo: NPC not visible, navigating to hint location");
+                            await MoveToLocationAsync(location, token, 5f);
+                        }
+                        else if (retryCount > 0)
+                        {
+                            _controller.Log($"TalkTo: Waiting for NPC to become targetable... ({retryCount}/{maxRetries})");
+                        }
+
+                        await Task.Delay(500, token);
+                        retryCount++;
+                    }
                 }
 
                 if (npc == null)
                 {
-                    _controller.Log($"TalkTo: NPC {npcName} not found");
+                    _controller.Log($"TalkTo: NPC {npcName} not found after {maxRetries} retries");
                     return false;
                 }
 
@@ -1480,21 +1495,39 @@ namespace TheWrangler
 
             try
             {
-                // Find the NPC
-                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
-                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                // Find the NPC - with retry since NPCs can be temporarily untargetable after dialog
+                GameObject npc = null;
+                var retryCount = 0;
+                var maxRetries = 10;
 
-                // Navigate to hint location if NPC not found
-                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                while (npc == null && retryCount < maxRetries)
                 {
-                    await MoveToLocationAsync(location, token, 5f);
+                    if (token.IsCancellationRequested) return false;
+
                     npc = GameObjectManager.GetObjectsByNPCId(npcId)
                         .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                    if (npc == null)
+                    {
+                        // Navigate to hint location on first attempt
+                        if (retryCount == 0 && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                        {
+                            _controller.Log($"PickupQuest: NPC not found, moving to location hint...");
+                            await MoveToLocationAsync(location, token, 5f);
+                        }
+                        else if (retryCount > 0)
+                        {
+                            _controller.Log($"PickupQuest: Waiting for NPC to become targetable... ({retryCount}/{maxRetries})");
+                        }
+
+                        await Task.Delay(500, token);
+                        retryCount++;
+                    }
                 }
 
                 if (npc == null)
                 {
-                    _controller.Log($"PickupQuest: NPC {npcName} not found");
+                    _controller.Log($"PickupQuest: NPC {npcName} not found after {maxRetries} retries");
                     return false;
                 }
 
@@ -1617,21 +1650,39 @@ namespace TheWrangler
 
             try
             {
-                // Find the NPC
-                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
-                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                // Find the NPC - with retry since NPCs can be temporarily untargetable
+                GameObject npc = null;
+                var retryCount = 0;
+                var maxRetries = 10;
 
-                // Navigate to hint location if NPC not found
-                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                while (npc == null && retryCount < maxRetries)
                 {
-                    await MoveToLocationAsync(location, token, 5f);
+                    if (token.IsCancellationRequested) return false;
+
                     npc = GameObjectManager.GetObjectsByNPCId(npcId)
                         .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                    if (npc == null)
+                    {
+                        // Navigate to hint location on first attempt
+                        if (retryCount == 0 && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                        {
+                            _controller.Log($"TurnIn: NPC not found, moving to location hint...");
+                            await MoveToLocationAsync(location, token, 5f);
+                        }
+                        else if (retryCount > 0)
+                        {
+                            _controller.Log($"TurnIn: Waiting for NPC to become targetable... ({retryCount}/{maxRetries})");
+                        }
+
+                        await Task.Delay(500, token);
+                        retryCount++;
+                    }
                 }
 
                 if (npc == null)
                 {
-                    _controller.Log($"TurnIn: NPC {npcName} not found");
+                    _controller.Log($"TurnIn: NPC {npcName} not found after {maxRetries} retries");
                     return false;
                 }
 
@@ -1984,8 +2035,9 @@ namespace TheWrangler
                         return false;
                     }
 
-                    // Wait a moment for quest completion
-                    await Task.Delay(1000, token);
+                    // Wait for NPC to become targetable again after dialog
+                    _controller.Log("Waiting for NPC to reset after dialog...");
+                    await Task.Delay(2000, token);
                 }
 
                 // Step 3: Pick up unlock quest if not already completed and not in journal
