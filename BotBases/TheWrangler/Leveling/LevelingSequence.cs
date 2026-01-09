@@ -4,6 +4,8 @@
  *
  * Contains the main leveling loop logic, converted from XML profiles to C#.
  * Uses LevelingData.cs for configuration and LlamaLibrary for execution.
+ * Uses existing RebornBuddy ProfileBehaviors (PickupQuestTag, TurnInQuestTag)
+ * instead of reimplementing quest logic.
  *
  * Main sequence:
  * 1. Unlock all classes (ClassUnlockData)
@@ -18,11 +20,15 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Buddy.Coroutines;
+using Clio.Utilities;
 using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
+using ff14bot.NeoProfiles;
+using ff14bot.NeoProfiles.Tags;
 using ff14bot.RemoteWindows;
 using LlamaLibrary.Helpers;
+using TreeSharp;
 
 namespace TheWrangler.Leveling
 {
@@ -245,120 +251,105 @@ namespace TheWrangler.Leveling
         }
 
         /// <summary>
-        /// Picks up a quest from an NPC.
+        /// Picks up a quest from an NPC using the existing PickupQuestTag behavior.
         /// </summary>
         private async Task<bool> PickupQuestAsync(uint npcId, uint questId, CancellationToken token)
         {
+            _controller.Log($"Using PickupQuestTag for quest {questId} from NPC {npcId}");
+
+            // Get NPC location
             var npc = GameObjectManager.GetObjectByNPCId(npcId);
-            if (npc == null)
+            var location = npc?.Location ?? Vector3.Zero;
+
+            // Create and configure the PickupQuestTag
+            var tag = new PickupQuestTag
             {
-                _controller.Log($"NPC {npcId} not found for quest pickup.");
-                return false;
-            }
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
 
-            if (!npc.IsWithinInteractRange)
-            {
-                await Navigation.OffMeshMoveInteract(npc);
-            }
-
-            npc.Interact();
-            await Coroutine.Yield();
-
-            // Handle dialog until we have the quest or timeout
-            var timeout = DateTime.Now.AddSeconds(30);
-            while (DateTime.Now < timeout && !QuestLogManager.HasQuest((int)questId))
-            {
-                if (token.IsCancellationRequested) return false;
-                await HandleDialogAsync();
-                await Coroutine.Sleep(200);
-            }
-
-            return QuestLogManager.HasQuest((int)questId);
+            // Execute the behavior
+            return await ExecuteProfileBehaviorAsync(tag, () => QuestLogManager.HasQuest((int)questId), token);
         }
 
         /// <summary>
-        /// Turns in a quest to an NPC.
+        /// Turns in a quest to an NPC using the existing TurnInQuestTag behavior.
         /// </summary>
         private async Task<bool> TurnInQuestAsync(uint npcId, uint questId, CancellationToken token)
         {
+            _controller.Log($"Using TurnInQuestTag for quest {questId} to NPC {npcId}");
+
+            // Get NPC location
             var npc = GameObjectManager.GetObjectByNPCId(npcId);
-            if (npc == null)
+            var location = npc?.Location ?? Vector3.Zero;
+
+            // Create and configure the TurnInQuestTag
+            var tag = new TurnInQuestTag
             {
-                _controller.Log($"NPC {npcId} not found for quest turn-in.");
-                return false;
-            }
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
 
-            if (!npc.IsWithinInteractRange)
-            {
-                await Navigation.OffMeshMoveInteract(npc);
-            }
-
-            npc.Interact();
-            await Coroutine.Yield();
-
-            // Handle dialog until quest is completed or timeout
-            var timeout = DateTime.Now.AddSeconds(30);
-            while (DateTime.Now < timeout && !QuestLogManager.IsQuestCompleted(questId))
-            {
-                if (token.IsCancellationRequested) return false;
-                await HandleDialogAsync();
-                await Coroutine.Sleep(200);
-            }
-
-            return QuestLogManager.IsQuestCompleted(questId);
+            // Execute the behavior
+            return await ExecuteProfileBehaviorAsync(tag, () => QuestLogManager.IsQuestCompleted(questId), token);
         }
 
         /// <summary>
-        /// Handles any open dialog window once.
+        /// Executes a ProfileBehavior by ticking its composite until done.
+        /// This allows us to use existing quest behaviors (PickupQuestTag, TurnInQuestTag, etc.)
+        /// from within a coroutine context.
         /// </summary>
-        private async Task HandleDialogAsync()
+        private async Task<bool> ExecuteProfileBehaviorAsync(ProfileBehavior behavior, Func<bool> successCondition, CancellationToken token)
         {
-            if (Talk.DialogOpen)
+            try
             {
-                Talk.Next();
-                await Coroutine.Wait(500, () => !Talk.DialogOpen);
-                return;
-            }
+                // Initialize the behavior
+                behavior.Start();
 
-            if (SelectString.IsOpen)
-            {
-                SelectString.ClickSlot(0);
-                await Coroutine.Wait(500, () => !SelectString.IsOpen);
-                return;
-            }
-
-            if (SelectIconString.IsOpen)
-            {
-                SelectIconString.ClickSlot(0);
-                await Coroutine.Wait(500, () => !SelectIconString.IsOpen);
-                return;
-            }
-
-            if (SelectYesno.IsOpen)
-            {
-                SelectYesno.ClickYes();
-                await Coroutine.Wait(500, () => !SelectYesno.IsOpen);
-                return;
-            }
-
-            if (JournalAccept.IsOpen)
-            {
-                JournalAccept.Accept();
-                await Coroutine.Wait(1000, () => !JournalAccept.IsOpen);
-                return;
-            }
-
-            if (JournalResult.IsOpen)
-            {
-                if (JournalResult.ButtonClickable)
+                // Get the composite from the behavior
+                var composite = behavior.CreateBehavior();
+                if (composite == null)
                 {
-                    JournalResult.Complete();
-                    await Coroutine.Wait(1000, () => !JournalResult.IsOpen);
+                    _controller.Log("ProfileBehavior returned null composite");
+                    return false;
                 }
-                return;
-            }
 
-            await Coroutine.Yield();
+                var context = new object();
+                var timeout = DateTime.Now.AddSeconds(60);
+
+                // Tick the composite until done
+                composite.Start(context);
+                await Coroutine.Yield();
+
+                while (!behavior.IsDone && DateTime.Now < timeout)
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        composite.Stop(context);
+                        return false;
+                    }
+
+                    var status = composite.Tick(context);
+                    if (status != RunStatus.Running)
+                    {
+                        break;
+                    }
+
+                    await Coroutine.Yield();
+                }
+
+                composite.Stop(context);
+                behavior.Done();
+
+                return successCondition();
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"ProfileBehavior execution error: {ex.Message}");
+                return false;
+            }
         }
 
         #endregion
@@ -549,6 +540,42 @@ namespace TheWrangler.Leveling
         #endregion
 
         #region Helper Methods
+
+        /// <summary>
+        /// Handles common dialog windows (Talk, SelectYesno, JournalAccept, etc.)
+        /// </summary>
+        private async Task HandleDialogAsync()
+        {
+            if (Talk.DialogOpen)
+            {
+                Talk.Next();
+                await Coroutine.Yield();
+            }
+
+            if (SelectYesno.IsOpen)
+            {
+                SelectYesno.ClickYes();
+                await Coroutine.Yield();
+            }
+
+            if (JournalAccept.IsOpen)
+            {
+                JournalAccept.Accept();
+                await Coroutine.Yield();
+            }
+
+            if (SelectString.IsOpen)
+            {
+                SelectString.ClickSlot(0);
+                await Coroutine.Yield();
+            }
+
+            if (JournalResult.IsOpen)
+            {
+                JournalResult.Complete();
+                await Coroutine.Yield();
+            }
+        }
 
         private async Task<bool> ChangeClassAsync(ClassJobType job, CancellationToken token)
         {
