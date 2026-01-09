@@ -16,9 +16,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Buddy.Coroutines;
 using Clio.Utilities;
+using ff14bot;
 using ff14bot.Helpers;
+using ff14bot.Managers;
 using ff14bot.NeoProfiles;
 using ff14bot.NeoProfiles.Tags;
+using ff14bot.RemoteWindows;
+using LlamaLibrary.Helpers;
 using TreeSharp;
 
 namespace TheWrangler.Leveling
@@ -182,6 +186,289 @@ namespace TheWrangler.Leveling
             int timeoutSeconds = DefaultTimeoutSeconds)
         {
             return await ExecuteAsync(behavior, () => behavior.IsDone, token, timeoutSeconds);
+        }
+
+        /// <summary>
+        /// Directly picks up a quest by interacting with NPC and handling dialogs.
+        /// This bypasses behavior tree coroutine issues.
+        /// </summary>
+        public static async Task<bool> PickupQuestDirectAsync(uint npcId, uint questId, Vector3 location, CancellationToken token, int timeoutSeconds = 60)
+        {
+            Logging.Write($"[TagExecutor] PickupQuestDirect: Quest {questId} from NPC {npcId}");
+
+            var timeout = DateTime.Now.AddSeconds(timeoutSeconds);
+
+            // Navigate to NPC if needed
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null || !npc.IsWithinInteractRange)
+            {
+                Logging.Write("[TagExecutor] Navigating to NPC...");
+                if (!await Navigation.GetTo(WorldManager.ZoneId, location))
+                {
+                    Logging.Write("[TagExecutor] Failed to navigate to NPC");
+                    return false;
+                }
+                npc = GameObjectManager.GetObjectByNPCId(npcId);
+            }
+
+            if (npc == null)
+            {
+                Logging.Write("[TagExecutor] NPC not found");
+                return false;
+            }
+
+            // Main interaction loop
+            var interacted = false;
+            while (DateTime.Now < timeout && !token.IsCancellationRequested)
+            {
+                // Check if quest is already accepted
+                if (QuestLogManager.HasQuest((int)questId))
+                {
+                    Logging.Write("[TagExecutor] Quest accepted!");
+                    return true;
+                }
+
+                // Handle dialog windows
+                if (Talk.DialogOpen)
+                {
+                    Talk.Next();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (JournalAccept.IsOpen)
+                {
+                    JournalAccept.Accept();
+                    await Coroutine.Sleep(500);
+                    continue;
+                }
+
+                if (SelectYesno.IsOpen)
+                {
+                    SelectYesno.ClickYes();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectString.IsOpen)
+                {
+                    SelectString.ClickSlot(0);
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectIconString.IsOpen)
+                {
+                    var questName = DataManager.GetLocalizedQuestName(questId);
+                    SelectIconString.ClickLineEquals(questName);
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                // Interact with NPC if no dialogs are open
+                if (!interacted || (!Talk.DialogOpen && !JournalAccept.IsOpen && !SelectYesno.IsOpen && !SelectString.IsOpen))
+                {
+                    npc = GameObjectManager.GetObjectByNPCId(npcId);
+                    if (npc != null && npc.IsWithinInteractRange)
+                    {
+                        Logging.Write("[TagExecutor] Interacting with NPC...");
+                        npc.Interact();
+                        interacted = true;
+                        await Coroutine.Sleep(1000);
+                        continue;
+                    }
+                }
+
+                await Coroutine.Yield();
+            }
+
+            var hasQuest = QuestLogManager.HasQuest((int)questId);
+            Logging.Write($"[TagExecutor] PickupQuestDirect finished, hasQuest={hasQuest}");
+            return hasQuest;
+        }
+
+        /// <summary>
+        /// Directly turns in a quest by interacting with NPC and handling dialogs.
+        /// </summary>
+        public static async Task<bool> TurnInQuestDirectAsync(uint npcId, uint questId, Vector3 location, CancellationToken token, int timeoutSeconds = 60)
+        {
+            Logging.Write($"[TagExecutor] TurnInQuestDirect: Quest {questId} to NPC {npcId}");
+
+            var timeout = DateTime.Now.AddSeconds(timeoutSeconds);
+
+            // Navigate to NPC if needed
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null || !npc.IsWithinInteractRange)
+            {
+                Logging.Write("[TagExecutor] Navigating to NPC...");
+                if (!await Navigation.GetTo(WorldManager.ZoneId, location))
+                {
+                    Logging.Write("[TagExecutor] Failed to navigate to NPC");
+                    return false;
+                }
+                npc = GameObjectManager.GetObjectByNPCId(npcId);
+            }
+
+            if (npc == null)
+            {
+                Logging.Write("[TagExecutor] NPC not found");
+                return false;
+            }
+
+            // Main interaction loop
+            var interacted = false;
+            while (DateTime.Now < timeout && !token.IsCancellationRequested)
+            {
+                // Check if quest is completed
+                if (QuestLogManager.IsQuestCompleted(questId))
+                {
+                    Logging.Write("[TagExecutor] Quest completed!");
+                    return true;
+                }
+
+                // Handle dialog windows
+                if (Talk.DialogOpen)
+                {
+                    Talk.Next();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (JournalResult.IsOpen)
+                {
+                    if (JournalResult.ButtonClickable)
+                    {
+                        JournalResult.Complete();
+                        await Coroutine.Sleep(500);
+                    }
+                    continue;
+                }
+
+                if (SelectYesno.IsOpen)
+                {
+                    SelectYesno.ClickYes();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectString.IsOpen)
+                {
+                    SelectString.ClickSlot(0);
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectIconString.IsOpen)
+                {
+                    var questName = DataManager.GetLocalizedQuestName(questId);
+                    SelectIconString.ClickLineEquals(questName);
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                // Interact with NPC if no dialogs are open
+                if (!interacted || (!Talk.DialogOpen && !JournalResult.IsOpen && !SelectYesno.IsOpen && !SelectString.IsOpen))
+                {
+                    npc = GameObjectManager.GetObjectByNPCId(npcId);
+                    if (npc != null && npc.IsWithinInteractRange)
+                    {
+                        Logging.Write("[TagExecutor] Interacting with NPC...");
+                        npc.Interact();
+                        interacted = true;
+                        await Coroutine.Sleep(1000);
+                        continue;
+                    }
+                }
+
+                await Coroutine.Yield();
+            }
+
+            var isComplete = QuestLogManager.IsQuestCompleted(questId);
+            Logging.Write($"[TagExecutor] TurnInQuestDirect finished, isComplete={isComplete}");
+            return isComplete;
+        }
+
+        /// <summary>
+        /// Directly talks to NPC for a simple talk-to quest.
+        /// </summary>
+        public static async Task<bool> TalkToNpcDirectAsync(uint npcId, uint questId, Vector3 location, CancellationToken token, int timeoutSeconds = 60)
+        {
+            Logging.Write($"[TagExecutor] TalkToNpcDirect: Quest {questId} with NPC {npcId}");
+
+            var timeout = DateTime.Now.AddSeconds(timeoutSeconds);
+
+            // Navigate to NPC if needed
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null || !npc.IsWithinInteractRange)
+            {
+                Logging.Write("[TagExecutor] Navigating to NPC...");
+                if (!await Navigation.GetTo(WorldManager.ZoneId, location))
+                {
+                    Logging.Write("[TagExecutor] Failed to navigate to NPC");
+                    return false;
+                }
+                npc = GameObjectManager.GetObjectByNPCId(npcId);
+            }
+
+            if (npc == null)
+            {
+                Logging.Write("[TagExecutor] NPC not found");
+                return false;
+            }
+
+            // Main interaction loop
+            var interacted = false;
+            while (DateTime.Now < timeout && !token.IsCancellationRequested)
+            {
+                // Check if quest is completed
+                if (QuestLogManager.IsQuestCompleted(questId))
+                {
+                    Logging.Write("[TagExecutor] Quest completed!");
+                    return true;
+                }
+
+                // Handle dialog windows
+                if (Talk.DialogOpen)
+                {
+                    Talk.Next();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectYesno.IsOpen)
+                {
+                    SelectYesno.ClickYes();
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                if (SelectString.IsOpen)
+                {
+                    SelectString.ClickSlot(0);
+                    await Coroutine.Sleep(200);
+                    continue;
+                }
+
+                // Interact with NPC if no dialogs are open
+                if (!interacted || (!Talk.DialogOpen && !SelectYesno.IsOpen && !SelectString.IsOpen))
+                {
+                    npc = GameObjectManager.GetObjectByNPCId(npcId);
+                    if (npc != null && npc.IsWithinInteractRange)
+                    {
+                        Logging.Write("[TagExecutor] Interacting with NPC...");
+                        npc.Interact();
+                        interacted = true;
+                        await Coroutine.Sleep(1000);
+                        continue;
+                    }
+                }
+
+                await Coroutine.Yield();
+            }
+
+            var isComplete = QuestLogManager.IsQuestCompleted(questId);
+            Logging.Write($"[TagExecutor] TalkToNpcDirect finished, isComplete={isComplete}");
+            return isComplete;
         }
 
         /// <summary>

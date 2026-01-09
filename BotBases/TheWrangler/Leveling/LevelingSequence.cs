@@ -150,8 +150,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var talkTag = TagExecutor.CreateTalkToTag(info.PickupNpcId, info.PrereqQuestId, info.PickupLocation);
-                if (!await TagExecutor.ExecuteAsync(talkTag, () => QuestLogManager.IsQuestCompleted(info.PrereqQuestId), token))
+                if (!await TagExecutor.TalkToNpcDirectAsync(info.PickupNpcId, info.PrereqQuestId, info.PickupLocation, token))
                 {
                     _controller.Log("Failed to complete prereq quest.");
                     return false;
@@ -171,8 +170,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var pickupTag = TagExecutor.CreatePickupQuestTag(info.PickupNpcId, info.UnlockQuestId, info.PickupLocation);
-                if (!await TagExecutor.ExecuteAsync(pickupTag, () => QuestLogManager.HasQuest((int)info.UnlockQuestId), token))
+                if (!await TagExecutor.PickupQuestDirectAsync(info.PickupNpcId, info.UnlockQuestId, info.PickupLocation, token))
                 {
                     _controller.Log("Failed to pickup unlock quest.");
                     return false;
@@ -190,8 +188,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var turnInTag = TagExecutor.CreateTurnInTag(info.TurnInNpcId, info.UnlockQuestId, info.TurnInLocation);
-                if (!await TagExecutor.ExecuteAsync(turnInTag, () => QuestLogManager.IsQuestCompleted(info.UnlockQuestId), token))
+                if (!await TagExecutor.TurnInQuestDirectAsync(info.TurnInNpcId, info.UnlockQuestId, info.TurnInLocation, token))
                 {
                     _controller.Log("Failed to turn in unlock quest.");
                     return false;
@@ -348,8 +345,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var pickupTag = TagExecutor.CreatePickupQuestTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
-                if (!await TagExecutor.ExecuteAsync(pickupTag, () => QuestLogManager.HasQuest((int)quest.QuestId), token))
+                if (!await TagExecutor.PickupQuestDirectAsync(quest.NpcId, quest.QuestId, quest.NpcLocation, token))
                 {
                     _controller.Log("Failed to pickup class quest.");
                     return false;
@@ -365,8 +361,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var turnInTag = TagExecutor.CreateTurnInTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
-                if (!await TagExecutor.ExecuteAsync(turnInTag, () => QuestLogManager.IsQuestCompleted(quest.QuestId), token))
+                if (!await TagExecutor.TurnInQuestDirectAsync(quest.NpcId, quest.QuestId, quest.NpcLocation, token))
                 {
                     _controller.Log("Failed to turn in class quest.");
                     return false;
