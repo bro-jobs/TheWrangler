@@ -21,6 +21,7 @@ using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
 using ff14bot.RemoteWindows;
+using LlamaLibrary.Helpers;
 using TheWrangler.Leveling.QuestInteractions;
 
 namespace TheWrangler.Leveling
@@ -186,6 +187,7 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Changing to {job}...");
                 await ChangeClassAsync(job, token);
+                await GeneralFunctions.InventoryEquipBest(updateGearSet: true, useRecommendEquip: true);
                 await Coroutine.Sleep(2000);
             }
 
@@ -248,6 +250,8 @@ namespace TheWrangler.Leveling
                 _controller.Log($"Failed to change to {job}.");
                 return false;
             }
+
+            await GeneralFunctions.InventoryEquipBest(updateGearSet: true, useRecommendEquip: true);
 
             while (Core.Me.Levels[job] < targetLevel)
             {
