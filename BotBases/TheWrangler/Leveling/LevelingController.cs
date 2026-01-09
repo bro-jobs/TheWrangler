@@ -46,6 +46,7 @@ using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Helpers;
 using ff14bot.Managers;
+using TreeSharp;
 
 namespace TheWrangler
 {
@@ -376,6 +377,14 @@ namespace TheWrangler
             finally
             {
                 _isRunning = false;
+
+                // Stop the bot tree when leveling ends (success or failure)
+                if (TreeRoot.IsRunning)
+                {
+                    Log("Stopping bot...");
+                    TreeRoot.Stop("Leveling completed or stopped");
+                }
+
                 LevelingCompleted?.Invoke(this, success);
             }
         }

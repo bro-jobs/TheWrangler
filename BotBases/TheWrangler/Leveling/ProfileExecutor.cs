@@ -834,31 +834,70 @@ namespace TheWrangler
         {
             try
             {
+                // Safety check - make sure we're in game
+                if (Core.Me == null)
+                {
+                    _controller.Log("GetTo: Character not loaded");
+                    return false;
+                }
+
                 // If in different zone, need to handle zone transition
                 if (WorldManager.ZoneId != zoneId)
                 {
                     // First try to teleport to the zone
                     var aetherytes = WorldManager.AetheryteIdsForZone(zoneId);
-                    if (aetherytes.Length > 0)
+                    if (aetherytes != null && aetherytes.Length > 0)
                     {
-                        // Find closest aetheryte to target
-                        var closest = aetherytes.OrderBy(a => a.Item2.DistanceSqr(targetLocation)).First();
+                        // Find a valid aetheryte (filter out any with null/default locations)
+                        var validAetherytes = aetherytes
+                            .Where(a => a.Item2 != default && a.Item2 != Vector3.Zero)
+                            .ToList();
 
-                        _controller.Log($"GetTo: Teleporting to zone {zoneId} first");
-                        WorldManager.TeleportById(closest.Item1);
+                        if (validAetherytes.Count > 0)
+                        {
+                            // Find closest aetheryte to target
+                            var closest = validAetherytes.OrderBy(a => a.Item2.DistanceSqr(targetLocation)).First();
 
-                        // Wait for teleport
-                        await WaitForConditionAsync(() => Core.Me.IsCasting, 5000, token);
-                        await WaitForConditionAsync(() => !Core.Me.IsCasting, 15000, token);
-                        await WaitForConditionAsync(() => CommonBehaviors.IsLoading, 5000, token);
-                        await WaitForConditionAsync(() => !CommonBehaviors.IsLoading, 60000, token);
-                        await Task.Delay(1000, token);
+                            _controller.Log($"GetTo: Teleporting to zone {zoneId} (aetheryte {closest.Item1})");
+
+                            // Check if we can teleport
+                            if (!WorldManager.CanTeleport())
+                            {
+                                _controller.Log("GetTo: Waiting to be able to teleport...");
+                                await WaitForConditionAsync(() => WorldManager.CanTeleport(), 10000, token);
+                            }
+
+                            WorldManager.TeleportById(closest.Item1);
+
+                            // Wait for teleport to start
+                            await WaitForConditionAsync(() => Core.Me?.IsCasting == true, 5000, token);
+
+                            // Wait for cast to complete
+                            await WaitForConditionAsync(() => Core.Me?.IsCasting != true, 15000, token);
+
+                            // Wait for loading screen to appear
+                            await WaitForConditionAsync(() => CommonBehaviors.IsLoading, 5000, token);
+
+                            // Wait for loading to finish
+                            await WaitForConditionAsync(() => !CommonBehaviors.IsLoading, 60000, token);
+
+                            // Brief settle time
+                            await Task.Delay(1500, token);
+
+                            _controller.Log($"GetTo: Arrived in zone {WorldManager.ZoneId}");
+                        }
+                        else
+                        {
+                            _controller.Log($"GetTo: No valid aetherytes found for zone {zoneId}");
+                            return false;
+                        }
                     }
                     else
                     {
-                        // Try to get a path that includes zone transitions
+                        // No aetherytes - try NavGraph path
+                        _controller.Log($"GetTo: No aetherytes for zone {zoneId}, trying NavGraph...");
                         var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
-                        if (path == null)
+                        if (path == null || path.Count == 0)
                         {
                             _controller.Log($"GetTo: Cannot find path to zone {zoneId}");
                             return false;
@@ -869,17 +908,18 @@ namespace TheWrangler
                     }
                 }
 
-                // Now navigate to the specific location
+                // Now navigate to the specific location within the zone
                 if (WorldManager.ZoneId == zoneId)
                 {
                     // Check if we're already close
-                    if (Core.Me.Location.Distance(targetLocation) < 5f)
+                    if (Core.Me != null && Core.Me.Location.Distance(targetLocation) < 5f)
                     {
                         _controller.Log("GetTo: Already at destination");
                         return true;
                     }
 
                     // Get path within the zone
+                    _controller.Log($"GetTo: Navigating to {targetLocation}");
                     var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
                     if (path != null && path.Count > 0)
                     {
@@ -888,15 +928,18 @@ namespace TheWrangler
                     else
                     {
                         // Try direct movement
+                        _controller.Log("GetTo: No nav path, trying direct movement");
                         return await MoveToLocationAsync(targetLocation, token);
                     }
                 }
 
+                _controller.Log($"GetTo: Zone mismatch - expected {zoneId}, got {WorldManager.ZoneId}");
                 return false;
             }
             catch (Exception ex)
             {
                 _controller.Log($"GetTo error: {ex.Message}");
+                _controller.Log($"GetTo stack: {ex.StackTrace}");
                 return false;
             }
         }
