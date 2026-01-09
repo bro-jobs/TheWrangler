@@ -135,102 +135,230 @@ namespace TheWrangler.Leveling
                 return false;
             }
 
-            _controller.SetDirective($"Unlocking {job}", "Navigating to guild...");
+            _controller.SetDirective($"Unlocking {job}", "Starting unlock sequence...");
             _controller.Log($"Unlocking {job}...");
 
-            // Navigate to pickup NPC location
-            _controller.Log($"Navigating to pickup NPC in zone {info.ZoneId}...");
-            if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
+            // Step 1: Complete prereq quest if not done (e.g., 65720 for Carpenter)
+            // This is just talking to the guild NPC to "discover" the guild
+            if (!QuestLogManager.IsQuestCompleted(info.PrereqQuestId))
             {
-                _controller.Log($"Failed to navigate to {job} guild.");
-                return false;
+                _controller.Log($"Completing prereq quest {info.PrereqQuestId}...");
+
+                if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
+                {
+                    _controller.Log($"Failed to navigate to guild NPC.");
+                    return false;
+                }
+
+                // Talk to NPC to complete prereq quest
+                if (!await TalkToNpcForQuestAsync(info.PickupNpcId, info.PrereqQuestId, token))
+                {
+                    _controller.Log($"Failed to complete prereq quest.");
+                    return false;
+                }
+
+                await Coroutine.Sleep(1500);
             }
 
-            // Find and interact with NPC
-            var pickupNpc = GameObjectManager.GetObjectByNPCId(info.PickupNpcId);
-            if (pickupNpc == null)
-            {
-                _controller.Log($"Pickup NPC {info.PickupNpcId} not found.");
-                return false;
-            }
-
-            // Move into interact range if needed
-            if (!pickupNpc.IsWithinInteractRange)
-            {
-                await Navigation.OffMeshMoveInteract(pickupNpc);
-            }
-
-            // Interact with NPC to start quest
-            _controller.Log($"Interacting with pickup NPC...");
-            pickupNpc.Interact();
-            await Coroutine.Yield(); // Important: yield after interact to maintain context
-            await Coroutine.Sleep(1000); // Wait for dialog to open
-
-            // Handle any dialog that appears (prereq quest, guild intro, etc.)
-            await HandleQuestDialogAsync(token);
-            await Coroutine.Sleep(500);
-
-            // Check if we need to pick up the unlock quest
+            // Step 2: Pickup the unlock quest if not already have it or completed
             if (!QuestLogManager.IsQuestCompleted(info.UnlockQuestId) && !QuestLogManager.HasQuest((int)info.UnlockQuestId))
             {
-                // Interact again to pick up the actual unlock quest
-                pickupNpc = GameObjectManager.GetObjectByNPCId(info.PickupNpcId);
-                if (pickupNpc != null)
+                _controller.Log($"Picking up unlock quest {info.UnlockQuestId}...");
+
+                if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
                 {
-                    if (!pickupNpc.IsWithinInteractRange)
-                    {
-                        await Navigation.OffMeshMoveInteract(pickupNpc);
-                    }
-                    pickupNpc.Interact();
-                    await Coroutine.Yield();
-                    await Coroutine.Sleep(1000);
-                    await HandleQuestDialogAsync(token);
+                    _controller.Log($"Failed to navigate to quest NPC.");
+                    return false;
+                }
+
+                if (!await PickupQuestAsync(info.PickupNpcId, info.UnlockQuestId, token))
+                {
+                    _controller.Log($"Failed to pickup unlock quest.");
+                    return false;
                 }
             }
 
-            // Turn in quest if we have it
+            // Step 3: Turn in the unlock quest
             if (QuestLogManager.HasQuest((int)info.UnlockQuestId))
             {
-                _controller.Log($"Turning in unlock quest to NPC {info.TurnInNpcId}...");
+                _controller.Log($"Turning in unlock quest {info.UnlockQuestId}...");
 
-                // Navigate to turn-in NPC
                 if (!await Navigation.GetTo(info.ZoneId, info.TurnInLocation))
                 {
                     _controller.Log($"Failed to navigate to turn-in NPC.");
                     return false;
                 }
 
-                var turnInNpc = GameObjectManager.GetObjectByNPCId(info.TurnInNpcId);
-                if (turnInNpc == null)
+                if (!await TurnInQuestAsync(info.TurnInNpcId, info.UnlockQuestId, token))
                 {
-                    // Retry finding NPC
-                    await Coroutine.Sleep(1000);
-                    turnInNpc = GameObjectManager.GetObjectByNPCId(info.TurnInNpcId);
-                }
-
-                if (turnInNpc != null)
-                {
-                    if (!turnInNpc.IsWithinInteractRange)
-                    {
-                        await Navigation.OffMeshMoveInteract(turnInNpc);
-                    }
-                    turnInNpc.Interact();
-                    await Coroutine.Yield();
-                    await Coroutine.Sleep(1000);
-                    await HandleQuestDialogAsync(token);
-                }
-                else
-                {
-                    _controller.Log($"Turn-in NPC not found.");
+                    _controller.Log($"Failed to turn in unlock quest.");
                     return false;
                 }
+
+                await Coroutine.Sleep(1500);
+            }
+
+            // Step 4: Change to the new class and equip gear
+            if (QuestLogManager.IsQuestCompleted(info.UnlockQuestId) && Core.Me.CurrentJob != job)
+            {
+                _controller.Log($"Changing to {job}...");
+                await ChangeClassAsync(job, token);
+                await Coroutine.Sleep(2000);
             }
 
             // Verify unlock
-            await Coroutine.Sleep(1000);
             var isUnlocked = Core.Me.Levels[job] > 0 || QuestLogManager.IsQuestCompleted(info.UnlockQuestId);
             _controller.Log($"{job} unlock status: {(isUnlocked ? "Success" : "Failed")}");
             return isUnlocked;
+        }
+
+        /// <summary>
+        /// Talks to an NPC to complete a simple talk-to quest.
+        /// </summary>
+        private async Task<bool> TalkToNpcForQuestAsync(uint npcId, uint questId, CancellationToken token)
+        {
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null)
+            {
+                _controller.Log($"NPC {npcId} not found.");
+                return false;
+            }
+
+            if (!npc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(npc);
+            }
+
+            npc.Interact();
+            await Coroutine.Yield();
+
+            // Handle dialog until quest is completed or timeout
+            var timeout = DateTime.Now.AddSeconds(30);
+            while (DateTime.Now < timeout && !QuestLogManager.IsQuestCompleted(questId))
+            {
+                if (token.IsCancellationRequested) return false;
+                await HandleDialogAsync();
+                await Coroutine.Sleep(200);
+            }
+
+            return QuestLogManager.IsQuestCompleted(questId);
+        }
+
+        /// <summary>
+        /// Picks up a quest from an NPC.
+        /// </summary>
+        private async Task<bool> PickupQuestAsync(uint npcId, uint questId, CancellationToken token)
+        {
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null)
+            {
+                _controller.Log($"NPC {npcId} not found for quest pickup.");
+                return false;
+            }
+
+            if (!npc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(npc);
+            }
+
+            npc.Interact();
+            await Coroutine.Yield();
+
+            // Handle dialog until we have the quest or timeout
+            var timeout = DateTime.Now.AddSeconds(30);
+            while (DateTime.Now < timeout && !QuestLogManager.HasQuest((int)questId))
+            {
+                if (token.IsCancellationRequested) return false;
+                await HandleDialogAsync();
+                await Coroutine.Sleep(200);
+            }
+
+            return QuestLogManager.HasQuest((int)questId);
+        }
+
+        /// <summary>
+        /// Turns in a quest to an NPC.
+        /// </summary>
+        private async Task<bool> TurnInQuestAsync(uint npcId, uint questId, CancellationToken token)
+        {
+            var npc = GameObjectManager.GetObjectByNPCId(npcId);
+            if (npc == null)
+            {
+                _controller.Log($"NPC {npcId} not found for quest turn-in.");
+                return false;
+            }
+
+            if (!npc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(npc);
+            }
+
+            npc.Interact();
+            await Coroutine.Yield();
+
+            // Handle dialog until quest is completed or timeout
+            var timeout = DateTime.Now.AddSeconds(30);
+            while (DateTime.Now < timeout && !QuestLogManager.IsQuestCompleted(questId))
+            {
+                if (token.IsCancellationRequested) return false;
+                await HandleDialogAsync();
+                await Coroutine.Sleep(200);
+            }
+
+            return QuestLogManager.IsQuestCompleted(questId);
+        }
+
+        /// <summary>
+        /// Handles any open dialog window once.
+        /// </summary>
+        private async Task HandleDialogAsync()
+        {
+            if (Talk.DialogOpen)
+            {
+                Talk.Next();
+                await Coroutine.Wait(500, () => !Talk.DialogOpen);
+                return;
+            }
+
+            if (SelectString.IsOpen)
+            {
+                SelectString.ClickSlot(0);
+                await Coroutine.Wait(500, () => !SelectString.IsOpen);
+                return;
+            }
+
+            if (SelectIconString.IsOpen)
+            {
+                SelectIconString.ClickSlot(0);
+                await Coroutine.Wait(500, () => !SelectIconString.IsOpen);
+                return;
+            }
+
+            if (SelectYesno.IsOpen)
+            {
+                SelectYesno.ClickYes();
+                await Coroutine.Wait(500, () => !SelectYesno.IsOpen);
+                return;
+            }
+
+            if (JournalAccept.IsOpen)
+            {
+                JournalAccept.Accept();
+                await Coroutine.Wait(1000, () => !JournalAccept.IsOpen);
+                return;
+            }
+
+            if (JournalResult.IsOpen)
+            {
+                if (JournalResult.ButtonClickable)
+                {
+                    JournalResult.Complete();
+                    await Coroutine.Wait(1000, () => !JournalResult.IsOpen);
+                }
+                return;
+            }
+
+            await Coroutine.Yield();
         }
 
         #endregion
@@ -392,15 +520,10 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var npc = GameObjectManager.GetObjectByNPCId(quest.NpcId);
-                if (npc != null)
+                if (!await PickupQuestAsync(quest.NpcId, quest.QuestId, token))
                 {
-                    if (!npc.IsWithinInteractRange)
-                        await Navigation.OffMeshMoveInteract(npc);
-                    npc.Interact();
-                    await Coroutine.Yield();
-                    await Coroutine.Sleep(1000);
-                    await HandleQuestDialogAsync(token);
+                    _controller.Log($"Failed to pickup class quest.");
+                    return false;
                 }
             }
 
@@ -413,15 +536,10 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var npc = GameObjectManager.GetObjectByNPCId(quest.NpcId);
-                if (npc != null)
+                if (!await TurnInQuestAsync(quest.NpcId, quest.QuestId, token))
                 {
-                    if (!npc.IsWithinInteractRange)
-                        await Navigation.OffMeshMoveInteract(npc);
-                    npc.Interact();
-                    await Coroutine.Yield();
-                    await Coroutine.Sleep(1000);
-                    await HandleQuestDialogAsync(token);
+                    _controller.Log($"Failed to turn in class quest.");
+                    return false;
                 }
             }
 
@@ -457,63 +575,6 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Lisbeth error: {ex.Message}");
                 return false;
-            }
-        }
-
-        private async Task HandleQuestDialogAsync(CancellationToken token)
-        {
-            var timeout = DateTime.Now.AddSeconds(30);
-
-            while (DateTime.Now < timeout)
-            {
-                if (token.IsCancellationRequested) return;
-
-                if (Talk.DialogOpen)
-                {
-                    Talk.Next();
-                    await Coroutine.Wait(200, () => !Talk.DialogOpen);
-                    continue;
-                }
-
-                if (SelectString.IsOpen)
-                {
-                    SelectString.ClickSlot(0);
-                    await Coroutine.Wait(500, () => !SelectString.IsOpen);
-                    continue;
-                }
-
-                if (SelectYesno.IsOpen)
-                {
-                    SelectYesno.ClickYes();
-                    await Coroutine.Wait(500, () => !SelectYesno.IsOpen);
-                    continue;
-                }
-
-                if (JournalAccept.IsOpen)
-                {
-                    JournalAccept.Accept();
-                    await Coroutine.Wait(1000, () => !JournalAccept.IsOpen);
-                    return;
-                }
-
-                if (JournalResult.IsOpen)
-                {
-                    if (JournalResult.ButtonClickable)
-                    {
-                        JournalResult.Complete();
-                        await Coroutine.Wait(1000, () => !JournalResult.IsOpen);
-                    }
-                    return;
-                }
-
-                // No dialog open, we're done
-                if (!Talk.DialogOpen && !SelectString.IsOpen && !SelectYesno.IsOpen &&
-                    !JournalAccept.IsOpen && !JournalResult.IsOpen)
-                {
-                    break;
-                }
-
-                await Coroutine.Yield();
             }
         }
 
