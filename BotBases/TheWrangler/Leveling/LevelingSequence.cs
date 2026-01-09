@@ -26,8 +26,8 @@ using ff14bot.Enums;
 using ff14bot.Managers;
 using ff14bot.NeoProfiles;
 using ff14bot.NeoProfiles.Tags;
-using ff14bot.RemoteWindows;
 using LlamaLibrary.Helpers;
+using LlamaUtilities.OrderbotTags;
 using TreeSharp;
 
 namespace TheWrangler.Leveling
@@ -219,35 +219,26 @@ namespace TheWrangler.Leveling
         }
 
         /// <summary>
-        /// Talks to an NPC to complete a simple talk-to quest.
+        /// Talks to an NPC to complete a simple talk-to quest using LLTalkTo behavior.
         /// </summary>
         private async Task<bool> TalkToNpcForQuestAsync(uint npcId, uint questId, CancellationToken token)
         {
+            _controller.Log($"Using LLTalkTo for quest {questId} with NPC {npcId}");
+
+            // Get NPC location
             var npc = GameObjectManager.GetObjectByNPCId(npcId);
-            if (npc == null)
+            var location = npc?.Location ?? Vector3.Zero;
+
+            // Create and configure the LLTalkTo tag
+            var tag = new LLTalkTo
             {
-                _controller.Log($"NPC {npcId} not found.");
-                return false;
-            }
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
 
-            if (!npc.IsWithinInteractRange)
-            {
-                await Navigation.OffMeshMoveInteract(npc);
-            }
-
-            npc.Interact();
-            await Coroutine.Yield();
-
-            // Handle dialog until quest is completed or timeout
-            var timeout = DateTime.Now.AddSeconds(30);
-            while (DateTime.Now < timeout && !QuestLogManager.IsQuestCompleted(questId))
-            {
-                if (token.IsCancellationRequested) return false;
-                await HandleDialogAsync();
-                await Coroutine.Sleep(200);
-            }
-
-            return QuestLogManager.IsQuestCompleted(questId);
+            // Execute the behavior
+            return await ExecuteProfileBehaviorAsync(tag, () => QuestLogManager.IsQuestCompleted(questId), token);
         }
 
         /// <summary>
@@ -540,42 +531,6 @@ namespace TheWrangler.Leveling
         #endregion
 
         #region Helper Methods
-
-        /// <summary>
-        /// Handles common dialog windows (Talk, SelectYesno, JournalAccept, etc.)
-        /// </summary>
-        private async Task HandleDialogAsync()
-        {
-            if (Talk.DialogOpen)
-            {
-                Talk.Next();
-                await Coroutine.Yield();
-            }
-
-            if (SelectYesno.IsOpen)
-            {
-                SelectYesno.ClickYes();
-                await Coroutine.Yield();
-            }
-
-            if (JournalAccept.IsOpen)
-            {
-                JournalAccept.Accept();
-                await Coroutine.Yield();
-            }
-
-            if (SelectString.IsOpen)
-            {
-                SelectString.ClickSlot(0);
-                await Coroutine.Yield();
-            }
-
-            if (JournalResult.IsOpen)
-            {
-                JournalResult.Complete();
-                await Coroutine.Yield();
-            }
-        }
 
         private async Task<bool> ChangeClassAsync(ClassJobType job, CancellationToken token)
         {
