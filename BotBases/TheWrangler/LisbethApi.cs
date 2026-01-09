@@ -64,6 +64,7 @@ namespace TheWrangler
         private Func<string> _getIncompleteOrders;
         private Func<Task> _stopGently;
         private Action _openWindow;
+        private Action<string> _requestRestart;
 
         #endregion
 
@@ -207,6 +208,7 @@ namespace TheWrangler
                 _getIncompleteOrders = CreateDelegate<Func<string>>(apiObject, "GetIncompleteOrders");
                 _stopGently = CreateDelegate<Func<Task>>(apiObject, "StopGently");
                 _openWindow = CreateDelegate<Action>(apiObject, "OpenWindow");
+                _requestRestart = CreateDelegate<Action<string>>(apiObject, "RequestRestart");
 
                 Log("Additional API methods bound successfully.");
             }
@@ -327,6 +329,47 @@ namespace TheWrangler
         public void OpenLisbethWindow()
         {
             _openWindow?.Invoke();
+        }
+
+        /// <summary>
+        /// Requests Lisbeth to restart/resume order execution with the provided JSON.
+        /// Use this with the result from GetIncompleteOrders() to resume incomplete orders.
+        /// </summary>
+        /// <param name="json">JSON string containing orders to resume (typically from GetIncompleteOrders)</param>
+        public void RequestRestart(string json)
+        {
+            if (_requestRestart == null)
+            {
+                Log("Warning: RequestRestart method not available.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(json) || json == "{}")
+            {
+                Log("Warning: No orders to restart.");
+                return;
+            }
+
+            // Call StartAction before first execution to initialize Lisbeth's systems
+            if (!_hasStarted && _startAction != null)
+            {
+                Log("Calling Lisbeth StartAction to initialize systems...");
+                _startAction.Invoke();
+                _hasStarted = true;
+                Log("Lisbeth StartAction completed.");
+            }
+
+            Log("Requesting Lisbeth to restart/resume orders...");
+            _requestRestart.Invoke(json);
+        }
+
+        /// <summary>
+        /// Returns true if there are incomplete orders that can be resumed.
+        /// </summary>
+        public bool HasIncompleteOrders()
+        {
+            var incomplete = GetIncompleteOrders();
+            return !string.IsNullOrWhiteSpace(incomplete) && incomplete != "{}";
         }
 
         /// <summary>

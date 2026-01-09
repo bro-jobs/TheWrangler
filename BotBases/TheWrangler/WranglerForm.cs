@@ -124,6 +124,7 @@ namespace TheWrangler
             // Style Order Mode buttons
             StyleButton(btnBrowse, Color.FromArgb(0, 122, 204), Color.White);
             StyleButton(btnRun, Color.FromArgb(46, 204, 113), Color.White);
+            StyleButton(btnResumeAll, Color.FromArgb(52, 152, 219), Color.White);  // Blue for resume
             StyleButton(btnStopGently, Color.FromArgb(230, 126, 34), Color.White);
 
             // Style Leveling Mode buttons
@@ -254,7 +255,8 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Run button click - queues the selected JSON and starts bot if needed.
+        /// Start button click - checks for incomplete orders and prompts user,
+        /// or starts new order execution.
         /// </summary>
         private void btnRun_Click(object sender, EventArgs e)
         {
@@ -270,7 +272,45 @@ namespace TheWrangler
                 return;
             }
 
-            // Queue the order for execution by the behavior tree
+            // Check for incomplete orders
+            if (_controller.HasIncompleteOrders())
+            {
+                // Show dialog asking user what to do
+                var result = MessageBox.Show(
+                    "There are incomplete orders from a previous session.\n\n" +
+                    "Would you like to resume the incomplete orders?\n\n" +
+                    "Click 'Yes' to resume incomplete orders.\n" +
+                    "Click 'No' to start the new order (discards incomplete).\n" +
+                    "Click 'Cancel' to abort.",
+                    "Incomplete Orders Found",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                if (result == DialogResult.Yes)
+                {
+                    // Resume incomplete orders
+                    ResumeIncompleteOrders();
+                    return;
+                }
+                else if (result == DialogResult.Cancel)
+                {
+                    // User cancelled
+                    LogToUI("Start cancelled.", Color.FromArgb(200, 200, 200));
+                    return;
+                }
+                // If No, fall through to start new order
+                LogToUI("Starting new order (incomplete orders will be discarded)...", Color.FromArgb(255, 200, 100));
+            }
+
+            // Queue the new order for execution
+            StartNewOrder();
+        }
+
+        /// <summary>
+        /// Starts a new order from the selected JSON file.
+        /// </summary>
+        private void StartNewOrder()
+        {
             bool queued = _controller.QueueSelectedJson();
 
             if (queued)
@@ -278,6 +318,7 @@ namespace TheWrangler
                 // Update UI to show order is queued/running
                 btnRun.Enabled = false;
                 btnRun.Text = "Running...";
+                btnResumeAll.Enabled = false;
                 btnStopGently.Enabled = true;
 
                 // Auto-start the bot if it's not running
@@ -289,6 +330,54 @@ namespace TheWrangler
                 else
                 {
                     LogToUI("Order queued, executing...", Color.LightGreen);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resume All button click - resumes all incomplete orders.
+        /// </summary>
+        private void btnResumeAll_Click(object sender, EventArgs e)
+        {
+            if (_controller.IsExecuting)
+            {
+                LogToUI("An order is already executing.", Color.Orange);
+                return;
+            }
+
+            ResumeIncompleteOrders();
+        }
+
+        /// <summary>
+        /// Resumes incomplete orders from Lisbeth.
+        /// </summary>
+        private void ResumeIncompleteOrders()
+        {
+            if (!_controller.HasIncompleteOrders())
+            {
+                LogToUI("No incomplete orders to resume.", Color.Orange);
+                return;
+            }
+
+            bool resumed = _controller.ResumeIncompleteOrders();
+
+            if (resumed)
+            {
+                // Update UI to show resuming
+                btnRun.Enabled = false;
+                btnRun.Text = "Running...";
+                btnResumeAll.Enabled = false;
+                btnStopGently.Enabled = true;
+
+                // Auto-start the bot if it's not running
+                if (!TheWranglerBotBase.IsBotRunning)
+                {
+                    LogToUI("Starting bot to resume orders...", Color.LightGreen);
+                    TheWranglerBotBase.StartBot();
+                }
+                else
+                {
+                    LogToUI("Resuming incomplete orders...", Color.LightGreen);
                 }
             }
         }
@@ -383,7 +472,8 @@ namespace TheWrangler
             }
 
             btnRun.Enabled = true;
-            btnRun.Text = "Run";
+            btnRun.Text = "Start";
+            btnResumeAll.Enabled = _controller.HasIncompleteOrders();
 
             if (success)
             {
@@ -884,9 +974,11 @@ namespace TheWrangler
         {
             // Order Mode
             btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
+            btnResumeAll.Enabled = !_controller.IsExecuting && _controller.HasIncompleteOrders();
             btnStopGently.Enabled = _controller.IsExecuting;
             if (!_controller.IsExecuting)
             {
+                btnRun.Text = "Start";
                 btnStopGently.Text = "Stop Gently";
             }
 

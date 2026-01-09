@@ -316,6 +316,63 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Returns true if there are incomplete orders that can be resumed.
+        /// </summary>
+        public bool HasIncompleteOrders()
+        {
+            return _lisbethApi.HasIncompleteOrders();
+        }
+
+        /// <summary>
+        /// Gets the incomplete orders JSON string.
+        /// </summary>
+        public string GetIncompleteOrders()
+        {
+            return _lisbethApi.GetIncompleteOrders();
+        }
+
+        /// <summary>
+        /// Resumes incomplete orders using Lisbeth's RequestRestart.
+        /// </summary>
+        /// <returns>True if resume was initiated successfully</returns>
+        public bool ResumeIncompleteOrders()
+        {
+            if (IsExecuting || HasPendingOrder)
+            {
+                OnLogMessage("Error: An order is already executing or pending.");
+                return false;
+            }
+
+            // Ensure API is initialized
+            if (!_lisbethApi.IsInitialized)
+            {
+                OnLogMessage("Lisbeth API not initialized, attempting to initialize...");
+                if (!Initialize())
+                {
+                    return false;
+                }
+            }
+
+            var incompleteOrders = _lisbethApi.GetIncompleteOrders();
+            if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}")
+            {
+                OnLogMessage("No incomplete orders to resume.");
+                return false;
+            }
+
+            OnStatusChanged("Resuming orders...");
+            OnLogMessage("Resuming incomplete orders...");
+
+            // Use RequestRestart to resume the incomplete orders
+            _lisbethApi.RequestRestart(incompleteOrders);
+
+            // Mark as executing since RequestRestart triggers order execution
+            IsExecuting = true;
+
+            return true;
+        }
+
+        /// <summary>
         /// Called when the bot stops. Resets state and notifies UI.
         /// Also calls Lisbeth's StopAction to clean up resources.
         /// </summary>
