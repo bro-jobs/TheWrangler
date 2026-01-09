@@ -69,6 +69,7 @@ class InstanceStatus:
     state: str = "unknown"
     is_executing: bool = False
     has_pending_order: bool = False
+    has_incomplete_orders: bool = False
     current_file: str = "None"
     api_status: str = "Unknown"
     bot_running: bool = False
@@ -99,6 +100,7 @@ class WranglerClient:
                 status.state = data.get("state", "unknown")
                 status.is_executing = data.get("isExecuting", False)
                 status.has_pending_order = data.get("hasPendingOrder", False)
+                status.has_incomplete_orders = data.get("hasIncompleteOrders", False)
                 status.current_file = data.get("currentFile", "None")
                 status.api_status = data.get("apiStatus", "Unknown")
                 status.bot_running = data.get("botRunning", False)
@@ -182,6 +184,27 @@ class WranglerClient:
         except Exception as e:
             return False, str(e)
 
+    @staticmethod
+    def resume_orders(instance: WranglerInstance) -> tuple[bool, str]:
+        """Sends a resume command to resume incomplete orders."""
+        try:
+            response = requests.post(
+                f"{instance.base_url}/resume",
+                timeout=REQUEST_TIMEOUT
+            )
+
+            data = response.json()
+            success = data.get("success", False)
+            message = data.get("message", data.get("error", "Unknown response"))
+            return success, message
+
+        except requests.exceptions.ConnectionError:
+            return False, "Connection refused"
+        except requests.exceptions.Timeout:
+            return False, "Request timeout"
+        except Exception as e:
+            return False, str(e)
+
 
 # =============================================================================
 # Instance Panel Widget
@@ -200,13 +223,14 @@ class InstancePanel(ttk.Frame):
     }
 
     def __init__(self, parent, instance: WranglerInstance,
-                 on_run: Callable, on_stop: Callable, on_remove: Callable):
+                 on_run: Callable, on_stop: Callable, on_resume: Callable, on_remove: Callable):
         super().__init__(parent, padding=10)
 
         self.instance = instance
         self.status = InstanceStatus()
         self.on_run = on_run
         self.on_stop = on_stop
+        self.on_resume = on_resume
         self.on_remove = on_remove
 
         self._create_widgets()
@@ -279,6 +303,19 @@ class InstancePanel(ttk.Frame):
             command=self._on_run_click
         )
 
+        self.resume_btn = tk.Button(
+            self.button_frame,
+            text="Resume",
+            font=("Segoe UI", 9, "bold"),
+            bg="#3498db",
+            fg="white",
+            activebackground="#2980b9",
+            activeforeground="white",
+            relief=tk.FLAT,
+            width=8,
+            command=self._on_resume_click
+        )
+
         self.stop_btn = tk.Button(
             self.button_frame,
             text="Stop",
@@ -325,6 +362,7 @@ class InstancePanel(ttk.Frame):
         # Buttons
         self.button_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
         self.run_btn.pack(side=tk.LEFT, padx=2)
+        self.resume_btn.pack(side=tk.LEFT, padx=2)
         self.stop_btn.pack(side=tk.LEFT, padx=2)
         self.remove_btn.pack(side=tk.RIGHT, padx=2)
 
@@ -364,14 +402,20 @@ class InstancePanel(ttk.Frame):
 
         # Update button states
         can_run = status.reachable and status.state in ("idle", "stopped")
+        can_resume = status.reachable and status.state in ("idle", "stopped") and status.has_incomplete_orders
         can_stop = status.reachable and status.is_executing
 
         self.run_btn.config(state=tk.NORMAL if can_run else tk.DISABLED)
+        self.resume_btn.config(state=tk.NORMAL if can_resume else tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL if can_stop else tk.DISABLED)
 
     def _on_run_click(self):
         """Handles Run button click."""
         self.on_run(self.instance)
+
+    def _on_resume_click(self):
+        """Handles Resume button click."""
+        self.on_resume(self.instance)
 
     def _on_stop_click(self):
         """Handles Stop button click."""
@@ -440,6 +484,7 @@ class WranglerMasterApp:
         actions_menu.add_command(label="Refresh All", command=self._refresh_all)
         actions_menu.add_separator()
         actions_menu.add_command(label="Start All", command=self._start_all)
+        actions_menu.add_command(label="Resume All", command=self._resume_all)
         actions_menu.add_command(label="Stop All Gently", command=self._stop_all)
 
     def _create_toolbar(self):
@@ -475,6 +520,21 @@ class WranglerMasterApp:
             command=self._start_all
         )
         self.start_all_btn.pack(side=tk.LEFT, padx=5)
+
+        self.resume_all_btn = tk.Button(
+            btn_frame,
+            text="Resume All",
+            font=("Segoe UI", 10, "bold"),
+            bg="#3498db",
+            fg="white",
+            activebackground="#2980b9",
+            activeforeground="white",
+            relief=tk.FLAT,
+            padx=20,
+            pady=5,
+            command=self._resume_all
+        )
+        self.resume_all_btn.pack(side=tk.LEFT, padx=5)
 
         self.stop_all_btn = tk.Button(
             btn_frame,
@@ -604,6 +664,7 @@ class WranglerMasterApp:
                 instance,
                 on_run=self._on_panel_run,
                 on_stop=self._on_panel_stop,
+                on_resume=self._on_panel_resume,
                 on_remove=self._on_panel_remove
             )
 
@@ -725,6 +786,23 @@ class WranglerMasterApp:
         thread = threading.Thread(target=do_stop, daemon=True)
         thread.start()
 
+    def _on_panel_resume(self, instance: WranglerInstance):
+        """Handles resume button click from a panel."""
+        self._set_status(f"Resuming {instance.name}...")
+
+        def do_resume():
+            success, message = WranglerClient.resume_orders(instance)
+            self.root.after(0, lambda: self._set_status(
+                f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
+            ))
+            # Refresh status after short delay
+            time.sleep(1)
+            status = WranglerClient.get_status(instance)
+            self.root.after(0, lambda: self._update_panel(instance, status))
+
+        thread = threading.Thread(target=do_resume, daemon=True)
+        thread.start()
+
     def _on_panel_remove(self, instance: WranglerInstance):
         """Handles remove button click from a panel."""
         if messagebox.askyesno("Remove Instance",
@@ -800,6 +878,50 @@ class WranglerMasterApp:
             self._refresh_all_async()
 
         thread = threading.Thread(target=do_stop_all, daemon=True)
+        thread.start()
+
+    def _resume_all(self):
+        """Resumes all instances with incomplete orders."""
+        self._set_status("Resuming all instances...")
+
+        def do_resume_all():
+            successes = 0
+            failures = 0
+            skipped = 0
+
+            for instance in self.instances:
+                if not instance.enabled:
+                    continue
+
+                # First check if instance has incomplete orders
+                status = WranglerClient.get_status(instance)
+                if not status.reachable:
+                    failures += 1
+                    continue
+
+                if not status.has_incomplete_orders:
+                    skipped += 1
+                    continue
+
+                if status.is_executing:
+                    skipped += 1
+                    continue
+
+                success, _ = WranglerClient.resume_orders(instance)
+                if success:
+                    successes += 1
+                else:
+                    failures += 1
+
+            self.root.after(0, lambda: self._set_status(
+                f"Resumed {successes} instances, {failures} failed, {skipped} skipped"
+            ))
+
+            # Refresh all after delay
+            time.sleep(2)
+            self._refresh_all_async()
+
+        thread = threading.Thread(target=do_resume_all, daemon=True)
         thread.start()
 
     def _save_config(self):

@@ -12,6 +12,7 @@
  * GET  /health  - Simple health check (returns "ok")
  * POST /run     - Start execution with JSON body: {"jsonPath":"..."} or {"json":"..."}
  * POST /stop    - Trigger StopGently
+ * POST /resume  - Resume incomplete orders from previous session
  *
  * IMPLEMENTATION:
  * Uses TcpListener instead of HttpListener because HttpListener
@@ -332,6 +333,19 @@ namespace TheWrangler
                         }
                         break;
 
+                    case "/resume":
+                        if (request.Method != "POST")
+                        {
+                            statusCode = 405;
+                            statusText = "Method Not Allowed";
+                            body = JsonConvert.SerializeObject(new { error = "Method not allowed" });
+                        }
+                        else
+                        {
+                            body = HandleResume();
+                        }
+                        break;
+
                     default:
                         statusCode = 404;
                         statusText = "Not Found";
@@ -384,6 +398,7 @@ namespace TheWrangler
                 state = GetStateString(),
                 isExecuting = _controller.IsExecuting,
                 hasPendingOrder = _controller.HasPendingOrder,
+                hasIncompleteOrders = _controller.HasIncompleteOrders(),
                 currentFile = WranglerSettings.Instance.JsonFileName ?? "None",
                 apiStatus = _controller.ApiStatus,
                 botRunning = TheWranglerBotBase.IsBotRunning,
@@ -488,6 +503,39 @@ namespace TheWrangler
 
             _controller.RequestStopGently();
             return JsonConvert.SerializeObject(new { success = true, message = "Stop requested" });
+        }
+
+        /// <summary>
+        /// Handles POST /resume - resumes incomplete orders.
+        /// </summary>
+        private string HandleResume()
+        {
+            if (_controller.IsExecuting)
+            {
+                return JsonConvert.SerializeObject(new { success = false, error = "Already executing" });
+            }
+
+            if (!_controller.HasIncompleteOrders())
+            {
+                return JsonConvert.SerializeObject(new { success = false, error = "No incomplete orders" });
+            }
+
+            bool resumed = _controller.ResumeIncompleteOrders();
+
+            if (resumed)
+            {
+                // Start bot if not running
+                if (!TheWranglerBotBase.IsBotRunning)
+                {
+                    TheWranglerBotBase.StartBot();
+                }
+
+                return JsonConvert.SerializeObject(new { success = true, message = "Resuming incomplete orders" });
+            }
+            else
+            {
+                return JsonConvert.SerializeObject(new { success = false, error = "Failed to resume orders" });
+            }
         }
 
         #endregion
