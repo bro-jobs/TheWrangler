@@ -171,3 +171,64 @@ await TurnInQuestAsync(questId, npcId, xyzHint, rewardSlot, token);
 // Gear management
 await AutoEquipBestGearAsync(token);
 ```
+
+## DoH/DoL Class Unlock Quest Data
+
+### API Testing Status
+- `Core.Me.Levels[ClassJobType.X]` - **TESTED** ✓ (level > 0 = unlocked)
+- `QuestLogManager.IsQuestCompleted(questId)` - **PENDING** (test with /unlock command)
+
+### Unlock Quest IDs and NPC Locations
+
+Each class has a "prereq" quest (talk to NPC) and an "unlock" quest (pickup and turn in).
+The unlock quest completion is what actually grants the class.
+
+| Class | Zone | Prereq Quest | Unlock Quest | Pickup NPC | TurnIn NPC |
+|-------|------|--------------|--------------|------------|------------|
+| Fisher | Limsa (129) | 66670 | 66643 | 1000859 | 1000857 |
+| Culinarian | Limsa (128) | 65727 | 65807 | 1000946 | 1000947 |
+| Armorer | Limsa (128) | 65722 | 65809 | 1000998 | 1001000 |
+| Blacksmith | Limsa (128) | 65721 | 65827 | 1000995 | 1000997 |
+| Carpenter | Gridania (132) | 65720 | 65674 | 1000148 | 1000153 |
+| Leatherworker | Gridania (133) | 65724 | 65641 | 1000352 | 1000691 |
+| Botanist | Gridania (133) | 65729 | 65539 | 1000294 | 1000815 |
+| Goldsmith | Ul'dah (131) | 65723 | 66144 | 1002280 | 1004093 |
+| Weaver | Ul'dah (131) | 65725 | 66070 | 1002283 | 1003818 |
+| Alchemist | Ul'dah (131) | 65726 | 66111 | 1002281 | 1002299 |
+| Miner | Ul'dah (131) | 65728 | 66133 | 1002282 | 1002298 |
+
+### NPC Locations (XYZ)
+
+```
+Fisher:       Limsa (129) - Pickup: -166.4, 4.5, 152.0 | TurnIn: -166.2, 4.5, 165.5
+Culinarian:   Limsa (128) - Pickup: -61.2, 42.3, -161.9 | TurnIn: -54.5, 44.2, -149.4
+Armorer:      Limsa (128) - Pickup: -50.0, 42.8, 190.4 | TurnIn: -32.8, 41.5, 207.6
+Blacksmith:   Limsa (128) - Pickup: -50.2, 42.8, 192.6 | TurnIn: -32.2, 44.7, 184.6
+Carpenter:    Gridania (132) - Pickup: -17.7, -3.3, 45.8 | TurnIn: -45.9, -1.3, 57.1
+Leatherworker: Gridania (133) - Pickup: 63.3, 8, -145.0 | TurnIn: 71.1, 8, -165.4
+Botanist:     Gridania (133) - Pickup: -237.9, 8, -145.3 | TurnIn: -233.4, 6.2, -168.7
+Goldsmith:    Ul'dah (131) - Pickup: -34.2, 13.6, 98.9 | TurnIn: -25.5, 12.2, 109.8
+Weaver:       Ul'dah (131) - Pickup: 136.8, 7.6, 97.8 | TurnIn: 156.7, 7.8, 100.3
+Alchemist:    Ul'dah (131) - Pickup: -114.7, 41.6, 120.8 | TurnIn: -98.7, 40.2, 122.4
+Miner:        Ul'dah (131) - Pickup: 1.4, 7.6, 153.7 | TurnIn: -16.5, 6.2, 157.8
+```
+
+### Checking Class Unlock Status
+
+A class is unlocked if either:
+1. `Core.Me.Levels[ClassJobType.X] > 0` - The class has a level (already unlocked)
+2. `QuestLogManager.IsQuestCompleted(unlockQuestId)` - The unlock quest is completed
+
+### RebornConsole Test: Quest Completion API
+
+Use this to test `QuestLogManager.IsQuestCompleted`:
+
+```csharp
+// Test quest completion API with Carpenter unlock quest (65674)
+Log($"Carpenter unlock quest (65674) completed: {QuestLogManager.IsQuestCompleted(65674)}");
+Log($"Fisher unlock quest (66643) completed: {QuestLogManager.IsQuestCompleted(66643)}");
+Log($"Miner unlock quest (66133) completed: {QuestLogManager.IsQuestCompleted(66133)}");
+Log($"Botanist unlock quest (65539) completed: {QuestLogManager.IsQuestCompleted(65539)}");
+```
+
+Or use the `/unlock` debug command in TheWrangler's Debug Mode tab (requires bot to be running).
