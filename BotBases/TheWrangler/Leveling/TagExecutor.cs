@@ -2,19 +2,22 @@
  * TagExecutor.cs - ProfileBehavior Execution Utility
  * ===================================================
  *
- * Provides a clean, functional way to execute RebornBuddy ProfileBehaviors
- * (like PickupQuestTag, TurnInQuestTag, LLTalkTo) from coroutine context.
+ * Provides a clean way to execute RebornBuddy ProfileBehaviors from coroutine context.
+ * Uses reflection to access protected CreateBehavior() and to load LlamaUtilities types
+ * at runtime (avoiding compile-time dependency issues).
  *
  * Usage:
- *   await TagExecutor.ExecuteAsync(new LLTalkTo { NpcId = 123, XYZ = loc }, token);
- *   await TagExecutor.ExecuteAsync(new PickupQuestTag { NpcId = 123, QuestId = 456 }, token);
+ *   await TagExecutor.ExecuteAsync(tag, successCondition, token);
  */
 
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Buddy.Coroutines;
+using Clio.Utilities;
 using ff14bot.NeoProfiles;
+using ff14bot.NeoProfiles.Tags;
 using TreeSharp;
 
 namespace TheWrangler.Leveling
@@ -26,13 +29,109 @@ namespace TheWrangler.Leveling
     {
         private const int DefaultTimeoutSeconds = 120;
 
+        // Cache reflection info
+        private static readonly MethodInfo CreateBehaviorMethod = typeof(ProfileBehavior)
+            .GetMethod("CreateBehavior", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        // LlamaUtilities types loaded at runtime
+        private static Type _llTalkToType;
+        private static Type _llPickUpQuestType;
+        private static Type _llTurnInTagType;
+
+        static TagExecutor()
+        {
+            // Try to load LlamaUtilities types at runtime
+            try
+            {
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                foreach (var asm in assemblies)
+                {
+                    if (asm.FullName.Contains("LlamaUtilities"))
+                    {
+                        _llTalkToType = asm.GetType("LlamaUtilities.OrderbotTags.LLTalkTo");
+                        _llPickUpQuestType = asm.GetType("LlamaUtilities.OrderbotTags.LLPickUpQuest");
+                        _llTurnInTagType = asm.GetType("LlamaUtilities.OrderbotTags.LLTurnInTag");
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback to base types if LlamaUtilities not available
+            }
+        }
+
+        /// <summary>
+        /// Creates a TalkTo tag (LLTalkTo if available, otherwise TalkToTag).
+        /// </summary>
+        public static ProfileBehavior CreateTalkToTag(uint npcId, uint questId, Vector3 location)
+        {
+            if (_llTalkToType != null)
+            {
+                var tag = Activator.CreateInstance(_llTalkToType);
+                SetTagProperties(tag, npcId, questId, location);
+                return (ProfileBehavior)tag;
+            }
+
+            return new TalkToTag
+            {
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
+        }
+
+        /// <summary>
+        /// Creates a PickupQuest tag (LLPickUpQuest if available, otherwise PickupQuestTag).
+        /// </summary>
+        public static ProfileBehavior CreatePickupQuestTag(uint npcId, uint questId, Vector3 location)
+        {
+            if (_llPickUpQuestType != null)
+            {
+                var tag = Activator.CreateInstance(_llPickUpQuestType);
+                SetTagProperties(tag, npcId, questId, location);
+                return (ProfileBehavior)tag;
+            }
+
+            return new PickupQuestTag
+            {
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
+        }
+
+        /// <summary>
+        /// Creates a TurnIn tag (LLTurnInTag if available, otherwise TurnInQuestTag).
+        /// </summary>
+        public static ProfileBehavior CreateTurnInTag(uint npcId, uint questId, Vector3 location)
+        {
+            if (_llTurnInTagType != null)
+            {
+                var tag = Activator.CreateInstance(_llTurnInTagType);
+                SetTagProperties(tag, npcId, questId, location);
+                return (ProfileBehavior)tag;
+            }
+
+            return new TurnInQuestTag
+            {
+                NpcId = (int)npcId,
+                QuestId = (int)questId,
+                XYZ = location
+            };
+        }
+
+        private static void SetTagProperties(object tag, uint npcId, uint questId, Vector3 location)
+        {
+            var type = tag.GetType();
+            type.GetProperty("NpcId")?.SetValue(tag, (int)npcId);
+            type.GetProperty("QuestId")?.SetValue(tag, (int)questId);
+            type.GetProperty("XYZ")?.SetValue(tag, location);
+        }
+
         /// <summary>
         /// Executes a ProfileBehavior by ticking its composite until done.
         /// </summary>
-        /// <param name="behavior">The ProfileBehavior to execute</param>
-        /// <param name="token">Cancellation token</param>
-        /// <param name="timeoutSeconds">Timeout in seconds (default 120)</param>
-        /// <returns>True if behavior completed without timing out or cancellation</returns>
         public static async Task<bool> ExecuteAsync(
             ProfileBehavior behavior,
             CancellationToken token,
@@ -44,11 +143,6 @@ namespace TheWrangler.Leveling
         /// <summary>
         /// Executes a ProfileBehavior with a custom success condition.
         /// </summary>
-        /// <param name="behavior">The ProfileBehavior to execute</param>
-        /// <param name="successCondition">Custom condition to check for success</param>
-        /// <param name="token">Cancellation token</param>
-        /// <param name="timeoutSeconds">Timeout in seconds (default 120)</param>
-        /// <returns>True if success condition is met</returns>
         public static async Task<bool> ExecuteAsync(
             ProfileBehavior behavior,
             Func<bool> successCondition,
@@ -60,7 +154,8 @@ namespace TheWrangler.Leveling
 
             behavior.Start();
 
-            var composite = behavior.CreateBehavior();
+            // Use reflection to call protected CreateBehavior method
+            var composite = CreateBehaviorMethod?.Invoke(behavior, null) as Composite;
             if (composite == null)
             {
                 return false;

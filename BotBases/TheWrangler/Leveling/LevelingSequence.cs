@@ -23,7 +23,6 @@ using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
 using LlamaLibrary.Helpers;
-using LlamaUtilities.OrderbotTags;
 
 namespace TheWrangler.Leveling
 {
@@ -151,7 +150,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var talkTag = CreateTalkToTag(info.PickupNpcId, info.PrereqQuestId, info.PickupLocation);
+                var talkTag = TagExecutor.CreateTalkToTag(info.PickupNpcId, info.PrereqQuestId, info.PickupLocation);
                 if (!await TagExecutor.ExecuteAsync(talkTag, () => QuestLogManager.IsQuestCompleted(info.PrereqQuestId), token))
                 {
                     _controller.Log("Failed to complete prereq quest.");
@@ -172,7 +171,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var pickupTag = CreatePickupQuestTag(info.PickupNpcId, info.UnlockQuestId, info.PickupLocation);
+                var pickupTag = TagExecutor.CreatePickupQuestTag(info.PickupNpcId, info.UnlockQuestId, info.PickupLocation);
                 if (!await TagExecutor.ExecuteAsync(pickupTag, () => QuestLogManager.HasQuest((int)info.UnlockQuestId), token))
                 {
                     _controller.Log("Failed to pickup unlock quest.");
@@ -191,7 +190,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var turnInTag = CreateTurnInQuestTag(info.TurnInNpcId, info.UnlockQuestId, info.TurnInLocation);
+                var turnInTag = TagExecutor.CreateTurnInTag(info.TurnInNpcId, info.UnlockQuestId, info.TurnInLocation);
                 if (!await TagExecutor.ExecuteAsync(turnInTag, () => QuestLogManager.IsQuestCompleted(info.UnlockQuestId), token))
                 {
                     _controller.Log("Failed to turn in unlock quest.");
@@ -349,7 +348,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var pickupTag = CreatePickupQuestTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
+                var pickupTag = TagExecutor.CreatePickupQuestTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
                 if (!await TagExecutor.ExecuteAsync(pickupTag, () => QuestLogManager.HasQuest((int)quest.QuestId), token))
                 {
                     _controller.Log("Failed to pickup class quest.");
@@ -366,7 +365,7 @@ namespace TheWrangler.Leveling
                     return false;
                 }
 
-                var turnInTag = CreateTurnInQuestTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
+                var turnInTag = TagExecutor.CreateTurnInTag(quest.NpcId, quest.QuestId, quest.NpcLocation);
                 if (!await TagExecutor.ExecuteAsync(turnInTag, () => QuestLogManager.IsQuestCompleted(quest.QuestId), token))
                 {
                     _controller.Log("Failed to turn in class quest.");
@@ -376,31 +375,6 @@ namespace TheWrangler.Leveling
 
             return QuestLogManager.IsQuestCompleted(quest.QuestId);
         }
-
-        #endregion
-
-        #region Tag Factory Methods
-
-        private static LLTalkTo CreateTalkToTag(uint npcId, uint questId, Vector3 location) => new LLTalkTo
-        {
-            NpcId = (int)npcId,
-            QuestId = (int)questId,
-            XYZ = location
-        };
-
-        private static LLPickUpQuest CreatePickupQuestTag(uint npcId, uint questId, Vector3 location) => new LLPickUpQuest
-        {
-            NpcId = (int)npcId,
-            QuestId = (int)questId,
-            XYZ = location
-        };
-
-        private static LLTurnInTag CreateTurnInQuestTag(uint npcId, uint questId, Vector3 location) => new LLTurnInTag
-        {
-            NpcId = (int)npcId,
-            QuestId = (int)questId,
-            XYZ = location
-        };
 
         #endregion
 
