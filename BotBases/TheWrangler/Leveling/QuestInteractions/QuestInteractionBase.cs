@@ -70,6 +70,10 @@ namespace TheWrangler.Leveling.QuestInteractions
                 return null;
             }
 
+            // NavGraph may have interacted with aethernet shards to learn them,
+            // which can leave dialogs open. Clear any stray dialogs.
+            await GeneralFunctions.SmallTalk(500);
+
             var npc = GameObjectManager.GetObjectByNPCId(NpcId);
             if (npc == null)
             {
