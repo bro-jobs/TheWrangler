@@ -54,6 +54,7 @@ using ff14bot.Pathing;
 using ff14bot.RemoteWindows;
 using TreeSharp;
 using TheWrangler.Leveling;
+using LlamaLibrary.Helpers;
 
 namespace TheWrangler
 {
@@ -829,6 +830,7 @@ namespace TheWrangler
 
         /// <summary>
         /// Navigate to a location, handling zone transitions if needed.
+        /// Uses LlamaLibrary.Helpers.Navigation.GetTo which handles all the complexity.
         /// </summary>
         public async Task<bool> NavigateToLocationAsync(uint zoneId, Vector3 targetLocation, CancellationToken token)
         {
@@ -841,90 +843,32 @@ namespace TheWrangler
                     return false;
                 }
 
-                // If in different zone, need to handle zone transition
-                if (WorldManager.ZoneId != zoneId)
+                // Check if we're already close
+                if (WorldManager.ZoneId == zoneId && Core.Me.Location.Distance(targetLocation) < 5f)
                 {
-                    // First try to teleport to the zone
-                    var aetherytes = WorldManager.AetheryteIdsForZone(zoneId);
-                    if (aetherytes != null && aetherytes.Length > 0)
-                    {
-                        // Find a valid aetheryte (filter out any with null/default locations)
-                        var validAetherytes = aetherytes
-                            .Where(a => a.Item2 != default && a.Item2 != Vector3.Zero)
-                            .ToList();
-
-                        if (validAetherytes.Count > 0)
-                        {
-                            // Find closest aetheryte to target
-                            var closest = validAetherytes.OrderBy(a => a.Item2.DistanceSqr(targetLocation)).First();
-
-                            _controller.Log($"GetTo: Teleporting to zone {zoneId} (aetheryte {closest.Item1})");
-
-                            // Check if we can teleport
-                            if (!WorldManager.CanTeleport())
-                            {
-                                _controller.Log("GetTo: Waiting to be able to teleport...");
-                                await WaitForConditionAsync(() => WorldManager.CanTeleport(), 10000, token);
-                            }
-
-                            WorldManager.TeleportById(closest.Item1);
-
-                            // Wait for teleport to start
-                            await WaitForConditionAsync(() => Core.Me?.IsCasting == true, 5000, token);
-
-                            // Wait for cast to complete
-                            await WaitForConditionAsync(() => Core.Me?.IsCasting != true, 15000, token);
-
-                            // Wait for loading screen to appear
-                            await WaitForConditionAsync(() => CommonBehaviors.IsLoading, 5000, token);
-
-                            // Wait for loading to finish
-                            await WaitForConditionAsync(() => !CommonBehaviors.IsLoading, 60000, token);
-
-                            // Brief settle time
-                            await Task.Delay(1500, token);
-
-                            _controller.Log($"GetTo: Arrived in zone {WorldManager.ZoneId}");
-                        }
-                        else
-                        {
-                            _controller.Log($"GetTo: No valid aetherytes found for zone {zoneId}");
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        // No aetherytes - try NavGraph path
-                        _controller.Log($"GetTo: No aetherytes for zone {zoneId}, trying NavGraph...");
-                        var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
-                        if (path == null || path.Count == 0)
-                        {
-                            _controller.Log($"GetTo: Cannot find path to zone {zoneId}");
-                            return false;
-                        }
-
-                        // Execute the path
-                        return await ExecuteNavGraphPathAsync(path, token);
-                    }
+                    _controller.Log("GetTo: Already at destination");
+                    return true;
                 }
 
-                // Now navigate to the specific location within the zone
-                if (WorldManager.ZoneId == zoneId)
-                {
-                    // Check if we're already close
-                    if (Core.Me != null && Core.Me.Location.Distance(targetLocation) < 5f)
-                    {
-                        _controller.Log("GetTo: Already at destination");
-                        return true;
-                    }
+                _controller.Log($"GetTo: Navigating to zone {zoneId}, location {targetLocation}");
 
-                    // Use Navigator.MoveTo for in-zone navigation (more reliable than NavGraph)
-                    _controller.Log($"GetTo: Navigating to {targetLocation}");
-                    return await NavigateWithinZoneAsync(targetLocation, token);
+                // Use LlamaLibrary's Navigation.GetTo which handles:
+                // - NavigationProvider initialization
+                // - Teleportation if needed
+                // - NavGraph path following
+                // - Flightor fallback
+                var result = await Navigation.GetTo(zoneId, targetLocation);
+
+                if (result)
+                {
+                    _controller.Log($"GetTo: Arrived at destination");
+                }
+                else
+                {
+                    _controller.Log($"GetTo: Navigation failed");
                 }
 
-                _controller.Log($"GetTo: Zone mismatch - expected {zoneId}, got {WorldManager.ZoneId}");
-                return false;
+                return result;
             }
             catch (Exception ex)
             {
@@ -989,74 +933,6 @@ namespace TheWrangler
             Navigator.Stop();
 
             return Core.Me.Location.Distance(targetLocation) <= tolerance;
-        }
-
-        /// <summary>
-        /// Navigate to a location within the current zone using Navigator.MoveTo.
-        /// This is more reliable than NavGraph for in-zone navigation.
-        /// </summary>
-        private async Task<bool> NavigateWithinZoneAsync(Vector3 targetLocation, CancellationToken token, float tolerance = 3f)
-        {
-            var timeout = 120000; // 2 minutes max
-            var elapsed = 0;
-            var stuckCheckInterval = 5000;
-            var lastPosition = Core.Me?.Location ?? Vector3.Zero;
-            var lastStuckCheck = 0;
-
-            while (elapsed < timeout)
-            {
-                if (token.IsCancellationRequested)
-                {
-                    Navigator.Stop();
-                    return false;
-                }
-
-                // Check if we've arrived
-                var currentDistance = Core.Me?.Location.Distance(targetLocation) ?? float.MaxValue;
-                if (currentDistance < tolerance)
-                {
-                    Navigator.Stop();
-                    _controller.Log($"GetTo: Arrived at destination (distance: {currentDistance:F1})");
-                    return true;
-                }
-
-                // Use Navigator.MoveTo which handles pathfinding
-                var moveResult = Navigator.MoveTo(targetLocation);
-
-                // Check if we're stuck (haven't moved in 5 seconds)
-                if (elapsed - lastStuckCheck >= stuckCheckInterval)
-                {
-                    var currentPos = Core.Me?.Location ?? Vector3.Zero;
-                    var movedDistance = currentPos.Distance(lastPosition);
-                    if (movedDistance < 1f && currentDistance > tolerance)
-                    {
-                        _controller.Log($"GetTo: Possibly stuck, trying to unstick...");
-                        // Try jumping or moving randomly to unstick
-                        Navigator.Stop();
-                        await Task.Delay(500, token);
-
-                        // Try moving directly for a bit
-                        Navigator.PlayerMover.MoveTowards(targetLocation);
-                        await Task.Delay(1000, token);
-                        Navigator.PlayerMover.MoveStop();
-                    }
-                    lastPosition = currentPos;
-                    lastStuckCheck = elapsed;
-                }
-
-                await Task.Delay(100, token);
-                elapsed += 100;
-
-                // Log progress every 10 seconds
-                if (elapsed % 10000 == 0)
-                {
-                    _controller.Log($"GetTo: Still navigating... Distance: {currentDistance:F1}");
-                }
-            }
-
-            Navigator.Stop();
-            _controller.Log($"GetTo: Navigation timeout after {timeout / 1000} seconds");
-            return false;
         }
 
         /// <summary>
