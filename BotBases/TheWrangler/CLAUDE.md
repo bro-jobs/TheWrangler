@@ -81,18 +81,18 @@ Log($"SelectIconString.IsOpen: {SelectIconString.IsOpen}");
 
 **Navigation test (start movement):**
 ```csharp
-// All in one script - variables must stay in same scope
+// Note: Navigator.PlayerMover is null in RebornConsole - use MovementManager
 Log($"Current location: {Core.Me.Location}");
 var target = new Vector3(Core.Me.Location.X + 10, Core.Me.Location.Y, Core.Me.Location.Z);
 Log($"Target: {target}");
-Navigator.PlayerMover.MoveTowards(target);
-Log("Moving towards target...");
+Core.Me.Face(target);
+MovementManager.MoveForwardStart();
+Log("Moving forward...");
 ```
 
 **Navigation test (stop movement):**
 ```csharp
-Navigator.PlayerMover.MoveStop();
-Navigator.Stop();
+MovementManager.MoveForwardStop();
 Log($"Stopped. Final location: {Core.Me.Location}");
 ```
 
