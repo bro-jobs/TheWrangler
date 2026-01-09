@@ -270,12 +270,9 @@ namespace TheWrangler
 
             results.AppendLine($"Character: {Core.Me.Name}, Location: {Core.Me.Location}");
 
-            // Get NPCs - this now works because we're on the bot thread
-            var npcs = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
-                .Where(o => o.IsVisible &&
-                           (o.Type == ff14bot.Enums.GameObjectType.EventNpc ||
-                            o.Type == ff14bot.Enums.GameObjectType.BattleNpc ||
-                            o.NpcId > 0))
+            // Use GameObjects property (NOT GetObjectsOfType which returns empty)
+            var npcs = ff14bot.Managers.GameObjectManager.GameObjects
+                .Where(o => o.IsVisible && o.Type == ff14bot.Enums.GameObjectType.EventNpc)
                 .OrderBy(o => o.Distance())
                 .Take(10)
                 .ToList();
@@ -283,7 +280,7 @@ namespace TheWrangler
             if (npcs.Count == 0)
             {
                 // Check for any visible objects
-                var allVisible = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
+                var allVisible = ff14bot.Managers.GameObjectManager.GameObjects
                     .Where(o => o.IsVisible)
                     .ToList();
 
