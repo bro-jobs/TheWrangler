@@ -144,13 +144,7 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Completing prereq quest {info.PrereqQuestId}...");
 
-                if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
-                {
-                    _controller.Log("Failed to navigate to guild NPC.");
-                    return false;
-                }
-
-                if (!await TagExecutor.TalkToNpcDirectAsync(info.PickupNpcId, info.PrereqQuestId, info.PickupLocation, token))
+                if (!await TagExecutor.TalkToNpcAsync(info.PickupNpcId, info.PrereqQuestId, info.ZoneId, info.PickupLocation, token))
                 {
                     _controller.Log("Failed to complete prereq quest.");
                     return false;
@@ -164,13 +158,7 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Picking up unlock quest {info.UnlockQuestId}...");
 
-                if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
-                {
-                    _controller.Log("Failed to navigate to quest NPC.");
-                    return false;
-                }
-
-                if (!await TagExecutor.PickupQuestDirectAsync(info.PickupNpcId, info.UnlockQuestId, info.PickupLocation, token))
+                if (!await TagExecutor.PickupQuestAsync(info.PickupNpcId, info.UnlockQuestId, info.ZoneId, info.PickupLocation, token))
                 {
                     _controller.Log("Failed to pickup unlock quest.");
                     return false;
@@ -182,13 +170,7 @@ namespace TheWrangler.Leveling
             {
                 _controller.Log($"Turning in unlock quest {info.UnlockQuestId}...");
 
-                if (!await Navigation.GetTo(info.ZoneId, info.TurnInLocation))
-                {
-                    _controller.Log("Failed to navigate to turn-in NPC.");
-                    return false;
-                }
-
-                if (!await TagExecutor.TurnInQuestDirectAsync(info.TurnInNpcId, info.UnlockQuestId, info.TurnInLocation, token))
+                if (!await TagExecutor.TurnInQuestAsync(info.TurnInNpcId, info.UnlockQuestId, info.ZoneId, info.TurnInLocation, token))
                 {
                     _controller.Log("Failed to turn in unlock quest.");
                     return false;
@@ -339,13 +321,7 @@ namespace TheWrangler.Leveling
             // Pick up quest
             if (!QuestLogManager.HasQuest((int)quest.QuestId) && !QuestLogManager.IsQuestCompleted(quest.QuestId))
             {
-                if (!await Navigation.GetTo(quest.ZoneId, quest.NpcLocation))
-                {
-                    _controller.Log("Failed to navigate to quest NPC.");
-                    return false;
-                }
-
-                if (!await TagExecutor.PickupQuestDirectAsync(quest.NpcId, quest.QuestId, quest.NpcLocation, token))
+                if (!await TagExecutor.PickupQuestAsync(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation, token))
                 {
                     _controller.Log("Failed to pickup class quest.");
                     return false;
@@ -355,13 +331,7 @@ namespace TheWrangler.Leveling
             // Turn in quest
             if (QuestLogManager.HasQuest((int)quest.QuestId))
             {
-                if (!await Navigation.GetTo(quest.ZoneId, quest.NpcLocation))
-                {
-                    _controller.Log("Failed to navigate to quest turn-in NPC.");
-                    return false;
-                }
-
-                if (!await TagExecutor.TurnInQuestDirectAsync(quest.NpcId, quest.QuestId, quest.NpcLocation, token))
+                if (!await TagExecutor.TurnInQuestAsync(quest.NpcId, quest.QuestId, quest.ZoneId, quest.NpcLocation, token))
                 {
                     _controller.Log("Failed to turn in class quest.");
                     return false;
