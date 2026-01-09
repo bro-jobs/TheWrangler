@@ -79,6 +79,23 @@ Log($"SelectString.IsOpen: {SelectString.IsOpen}");
 Log($"SelectIconString.IsOpen: {SelectIconString.IsOpen}");
 ```
 
+**Navigation test (start movement):**
+```csharp
+// All in one script - variables must stay in same scope
+Log($"Current location: {Core.Me.Location}");
+var target = new Vector3(Core.Me.Location.X + 10, Core.Me.Location.Y, Core.Me.Location.Z);
+Log($"Target: {target}");
+Navigator.PlayerMover.MoveTowards(target);
+Log("Moving towards target...");
+```
+
+**Navigation test (stop movement):**
+```csharp
+Navigator.PlayerMover.MoveStop();
+Navigator.Stop();
+Log($"Stopped. Final location: {Core.Me.Location}");
+```
+
 ## Key ff14bot APIs
 
 ### Navigation
