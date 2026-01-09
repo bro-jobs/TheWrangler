@@ -68,7 +68,7 @@ namespace TheWrangler.Leveling.QuestInteractions
 
                 if (SelectIconString.IsOpen)
                 {
-                    var questName = DataManager.GetLocalizedQuestName(QuestId);
+                    var questName = DataManager.GetLocalizedQuestName((int)QuestId);
                     SelectIconString.ClickLineEquals(questName);
                     await Coroutine.Sleep(200);
                     continue;
