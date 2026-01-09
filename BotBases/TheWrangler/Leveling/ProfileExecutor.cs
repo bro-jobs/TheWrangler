@@ -1152,16 +1152,29 @@ namespace TheWrangler
 
                     gearSet.Activate();
 
-                    // Handle confirmation dialog if needed
-                    await WaitForConditionAsync(() => SelectYesno.IsOpen, 3000, token);
-                    if (SelectYesno.IsOpen)
+                    // Handle "item not found, replace?" dialogs - there may be multiple
+                    // Keep clicking Yes until no more dialogs appear or we've changed class
+                    var dialogTimeout = 10000;
+                    var dialogElapsed = 0;
+                    while (dialogElapsed < dialogTimeout && Core.Me.CurrentJob != targetJob)
                     {
-                        SelectYesno.Yes();
-                        await Task.Delay(1000, token);
+                        if (token.IsCancellationRequested) return false;
+
+                        if (SelectYesno.IsOpen)
+                        {
+                            _controller.Log("ChangeClass: Confirming gear replacement");
+                            SelectYesno.ClickYes();
+                            await Task.Delay(500, token);
+                            dialogElapsed += 500;
+                            continue;
+                        }
+
+                        await Task.Delay(100, token);
+                        dialogElapsed += 100;
                     }
 
-                    // Wait for class change
-                    await WaitForConditionAsync(() => Core.Me.CurrentJob == targetJob, 5000, token);
+                    // Additional wait for class change to complete
+                    await WaitForConditionAsync(() => Core.Me.CurrentJob == targetJob, 3000, token);
 
                     if (Core.Me.CurrentJob == targetJob)
                     {
