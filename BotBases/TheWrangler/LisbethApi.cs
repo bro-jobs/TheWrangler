@@ -421,6 +421,32 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Requests Lisbeth to stop gracefully - async version for bot thread.
+        /// This should be called from within a coroutine context (behavior tree).
+        /// </summary>
+        /// <returns>Task that completes when stop is signaled</returns>
+        public async Task StopGentlyAsync()
+        {
+            if (_stopGently == null)
+            {
+                Log("Warning: StopGently method not available.");
+                return;
+            }
+
+            try
+            {
+                Log("Executing StopGently on bot thread...");
+                await _stopGently.Invoke();
+                Log("StopGently completed.");
+            }
+            catch (Exception ex)
+            {
+                // Log but don't throw - the stop signal should have been sent
+                Log($"StopGently exception (stop may still work): {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Calls Lisbeth's StopAction to clean up resources.
         /// Should be called when TheWrangler stops.
         /// </summary>
