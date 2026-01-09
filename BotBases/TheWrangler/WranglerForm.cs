@@ -3,32 +3,22 @@
  * =============================================
  *
  * PURPOSE:
- * This is the main UI window for TheWrangler. It provides a simple, clean
- * interface for selecting a JSON file and running Lisbeth orders.
+ * This is the main UI window for TheWrangler. It provides two modes:
+ * 1. Order Mode: Run individual Lisbeth JSON orders
+ * 2. Leveling Mode: Automated DoH/DoL leveling to 100
  *
  * UI COMPONENTS:
- * - File selection panel with browse button and path display
- * - Run button to queue the selected JSON for execution
- * - Status log area showing operation results
- * - Ignore Home checkbox option
+ * - TabControl with Order Mode and Leveling Mode tabs
+ * - File selection panel for Order Mode
+ * - Class levels display for Leveling Mode
+ * - Current directive status for Leveling Mode
+ * - Missing items warnings for Leveling Mode
  *
  * ARCHITECTURE:
  * - Form logic is here, layout is in WranglerForm.Designer.cs
- * - Uses WranglerController for bot operations
+ * - Uses WranglerController for Order Mode operations
+ * - Uses LevelingController for Leveling Mode operations
  * - Settings are loaded/saved via WranglerSettings
- *
- * IMPORTANT - EXECUTION FLOW:
- * The Run button does NOT execute immediately. It queues the order:
- * 1. User clicks Run -> QueueSelectedJson() validates and queues
- * 2. The behavior tree (in TheWranglerBotBase) picks up the order
- * 3. Order executes within the proper coroutine context
- * 4. OrderCompleted event fires when done
- *
- * NOTES FOR CLAUDE:
- * - This form runs on a separate STA thread (required for WinForms)
- * - Use Invoke() when updating UI from other threads
- * - Orders queue, not execute directly - they run in the behavior tree
- * - Keep form logic minimal - complex logic goes in controller/API classes
  */
 
 using System;
@@ -47,6 +37,7 @@ namespace TheWrangler
         #region Fields
 
         private readonly WranglerController _controller;
+        private readonly LevelingController _levelingController;
 
         #endregion
 
@@ -73,6 +64,7 @@ namespace TheWrangler
         public WranglerForm(WranglerController controller)
         {
             _controller = controller;
+            _levelingController = new LevelingController();
             Instance = this;
 
             InitializeComponent();
@@ -90,10 +82,16 @@ namespace TheWrangler
         /// </summary>
         private void SetupForm()
         {
-            // Set up event handlers
+            // Set up Order Mode event handlers
             _controller.StatusChanged += OnStatusChanged;
             _controller.LogMessage += OnLogMessage;
             _controller.OrderCompleted += OnOrderCompleted;
+
+            // Set up Leveling Mode event handlers
+            _levelingController.DirectiveChanged += OnDirectiveChanged;
+            _levelingController.LogMessage += OnLevelingLogMessage;
+            _levelingController.LevelingCompleted += OnLevelingCompleted;
+            _levelingController.ClassLevelsUpdated += OnClassLevelsUpdated;
 
             // Set form properties
             this.Text = "TheWrangler - Lisbeth Order Runner";
@@ -114,30 +112,58 @@ namespace TheWrangler
             // Style the main panel
             pnlMain.BackColor = Color.FromArgb(37, 37, 38);
 
-            // Style buttons
+            // Style tab control
+            tabControl.BackColor = Color.FromArgb(37, 37, 38);
+
+            // Style tab pages
+            tabOrderMode.BackColor = Color.FromArgb(37, 37, 38);
+            tabLevelingMode.BackColor = Color.FromArgb(37, 37, 38);
+
+            // Style Order Mode buttons
             StyleButton(btnBrowse, Color.FromArgb(0, 122, 204), Color.White);
             StyleButton(btnRun, Color.FromArgb(46, 204, 113), Color.White);
-            StyleButton(btnStopGently, Color.FromArgb(230, 126, 34), Color.White); // Orange for stop
+            StyleButton(btnStopGently, Color.FromArgb(230, 126, 34), Color.White);
+
+            // Style Leveling Mode buttons
+            StyleButton(btnStartLeveling, Color.FromArgb(46, 204, 113), Color.White);
+            StyleButton(btnStopLeveling, Color.FromArgb(230, 126, 34), Color.White);
 
             // Style labels
             lblTitle.ForeColor = Color.White;
+
+            // Order Mode labels
             lblSelectedFile.ForeColor = Color.FromArgb(200, 200, 200);
             lblFilePath.ForeColor = Color.FromArgb(150, 200, 255);
             lblStatus.ForeColor = Color.FromArgb(200, 200, 200);
-
-            // Style checkbox
             chkIgnoreHome.ForeColor = Color.FromArgb(200, 200, 200);
-
-            // Style remote port controls
             lblRemotePort.ForeColor = Color.FromArgb(200, 200, 200);
             txtRemotePort.BackColor = Color.FromArgb(60, 60, 60);
             txtRemotePort.ForeColor = Color.FromArgb(220, 220, 220);
             txtRemotePort.BorderStyle = BorderStyle.FixedSingle;
             lblServerStatus.ForeColor = Color.FromArgb(150, 150, 150);
-
-            // Style log area
             txtLog.BackColor = Color.FromArgb(30, 30, 30);
             txtLog.ForeColor = Color.FromArgb(220, 220, 220);
+
+            // Leveling Mode labels
+            lblLevelingTitle.ForeColor = Color.FromArgb(200, 200, 200);
+            lblCurrentDirective.ForeColor = Color.FromArgb(100, 200, 255);
+            lblDirectiveDetail.ForeColor = Color.FromArgb(180, 180, 180);
+            lblClassLevelsHeader.ForeColor = Color.FromArgb(200, 200, 200);
+            lblCrafterLevels.ForeColor = Color.FromArgb(220, 220, 220);
+            lblGathererLevels.ForeColor = Color.FromArgb(220, 220, 220);
+            lblMissingItemsHeader.ForeColor = Color.FromArgb(200, 200, 200);
+            lblLevelingStatus.ForeColor = Color.FromArgb(200, 200, 200);
+
+            // Leveling Mode panels
+            pnlLevelingStatus.BackColor = Color.FromArgb(50, 50, 55);
+            pnlClassLevels.BackColor = Color.FromArgb(50, 50, 55);
+            pnlMissingItems.BackColor = Color.FromArgb(50, 50, 55);
+
+            // Leveling Mode text boxes
+            txtMissingItems.BackColor = Color.FromArgb(40, 40, 45);
+            txtMissingItems.ForeColor = Color.FromArgb(255, 200, 100); // Orange/yellow for warnings
+            txtLevelingLog.BackColor = Color.FromArgb(30, 30, 30);
+            txtLevelingLog.ForeColor = Color.FromArgb(220, 220, 220);
         }
 
         /// <summary>
@@ -188,7 +214,7 @@ namespace TheWrangler
 
         #endregion
 
-        #region Event Handlers
+        #region Order Mode Event Handlers
 
         /// <summary>
         /// Browse button click - opens file dialog.
@@ -240,7 +266,7 @@ namespace TheWrangler
                 // Update UI to show order is queued/running
                 btnRun.Enabled = false;
                 btnRun.Text = "Running...";
-                btnStopGently.Enabled = true; // Enable stop button while running
+                btnStopGently.Enabled = true;
 
                 // Auto-start the bot if it's not running
                 if (!TheWranglerBotBase.IsBotRunning)
@@ -279,7 +305,6 @@ namespace TheWrangler
             btnStopGently.Enabled = false;
             btnStopGently.Text = "Stopping...";
 
-            // Request stop - this signals Lisbeth to stop gracefully
             _controller.RequestStopGently();
         }
 
@@ -292,13 +317,11 @@ namespace TheWrangler
             {
                 var settings = WranglerSettings.Instance;
 
-                // Only restart if port actually changed
                 if (settings.RemoteServerPort != port)
                 {
                     settings.RemoteServerPort = port;
                     settings.Save();
 
-                    // Restart the remote server with new port
                     if (TheWranglerBotBase.Instance != null)
                     {
                         LogToUI($"Restarting remote server on port {port}...", Color.LightBlue);
@@ -309,27 +332,9 @@ namespace TheWrangler
             }
             else
             {
-                // Invalid port - reset to current setting
                 LogToUI("Invalid port number. Using previous value.", Color.Orange);
                 txtRemotePort.Text = WranglerSettings.Instance.RemoteServerPort.ToString();
             }
-        }
-
-        /// <summary>
-        /// Form closing - saves settings.
-        /// </summary>
-        private void WranglerForm_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            // Save window position
-            WranglerSettings.Instance.WindowX = this.Location.X;
-            WranglerSettings.Instance.WindowY = this.Location.Y;
-            WranglerSettings.Instance.Save();
-
-            // Cleanup
-            _controller.StatusChanged -= OnStatusChanged;
-            _controller.LogMessage -= OnLogMessage;
-            _controller.OrderCompleted -= OnOrderCompleted;
-            Instance = null;
         }
 
         /// <summary>
@@ -356,7 +361,6 @@ namespace TheWrangler
 
         /// <summary>
         /// Controller order completed event.
-        /// Re-enables the Run button.
         /// </summary>
         private void OnOrderCompleted(object sender, bool success)
         {
@@ -366,11 +370,9 @@ namespace TheWrangler
                 return;
             }
 
-            // Re-enable the run button
             btnRun.Enabled = true;
             btnRun.Text = "Run";
 
-            // Log result
             if (success)
             {
                 LogToUI("Orders completed successfully!", Color.LightGreen);
@@ -381,6 +383,157 @@ namespace TheWrangler
             }
 
             UpdateUIState();
+        }
+
+        #endregion
+
+        #region Leveling Mode Event Handlers
+
+        /// <summary>
+        /// Start Leveling button click - begins DoH/DoL leveling.
+        /// </summary>
+        private void btnStartLeveling_Click(object sender, EventArgs e)
+        {
+            if (_levelingController.IsRunning)
+            {
+                LogToLevelingUI("Leveling is already running.", Color.Orange);
+                return;
+            }
+
+            // Update UI
+            btnStartLeveling.Enabled = false;
+            btnStartLeveling.Text = "Running...";
+            btnStopLeveling.Enabled = true;
+
+            // Check for missing items first
+            LogToLevelingUI("Checking for required items...", Color.LightBlue);
+            var missingItems = _levelingController.CheckRequiredItems();
+            UpdateMissingItemsDisplay(missingItems);
+
+            // Start the leveling process
+            LogToLevelingUI("Starting DoH/DoL leveling...", Color.LightGreen);
+            _levelingController.StartLeveling();
+
+            // Auto-start the bot if it's not running
+            if (!TheWranglerBotBase.IsBotRunning)
+            {
+                LogToLevelingUI("Starting bot...", Color.LightGreen);
+                TheWranglerBotBase.StartBot();
+            }
+        }
+
+        /// <summary>
+        /// Stop Leveling button click - stops the leveling process.
+        /// </summary>
+        private void btnStopLeveling_Click(object sender, EventArgs e)
+        {
+            if (!_levelingController.IsRunning)
+            {
+                LogToLevelingUI("Leveling is not running.", Color.Orange);
+                return;
+            }
+
+            LogToLevelingUI("Stopping leveling...", Color.FromArgb(230, 126, 34));
+            btnStopLeveling.Enabled = false;
+            btnStopLeveling.Text = "Stopping...";
+
+            _levelingController.StopLeveling();
+        }
+
+        /// <summary>
+        /// Leveling directive changed event.
+        /// </summary>
+        private void OnDirectiveChanged(object sender, DirectiveChangedEventArgs e)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => OnDirectiveChanged(sender, e)));
+                return;
+            }
+
+            lblCurrentDirective.Text = e.Directive;
+            lblDirectiveDetail.Text = e.Detail;
+        }
+
+        /// <summary>
+        /// Leveling log message event.
+        /// </summary>
+        private void OnLevelingLogMessage(object sender, string message)
+        {
+            LogToLevelingUI(message, Color.FromArgb(220, 220, 220));
+        }
+
+        /// <summary>
+        /// Leveling completed event.
+        /// </summary>
+        private void OnLevelingCompleted(object sender, bool success)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => OnLevelingCompleted(sender, success)));
+                return;
+            }
+
+            btnStartLeveling.Enabled = true;
+            btnStartLeveling.Text = "Start Leveling";
+            btnStopLeveling.Enabled = false;
+            btnStopLeveling.Text = "Stop";
+
+            if (success)
+            {
+                lblCurrentDirective.Text = "Completed!";
+                lblDirectiveDetail.Text = "All DoH/DoL classes leveled to 100!";
+                LogToLevelingUI("Leveling completed successfully!", Color.LightGreen);
+            }
+            else
+            {
+                lblCurrentDirective.Text = "Stopped";
+                lblDirectiveDetail.Text = "Leveling was stopped or encountered an error.";
+                LogToLevelingUI("Leveling stopped.", Color.Orange);
+            }
+        }
+
+        /// <summary>
+        /// Class levels updated event.
+        /// </summary>
+        private void OnClassLevelsUpdated(object sender, ClassLevelsEventArgs e)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => OnClassLevelsUpdated(sender, e)));
+                return;
+            }
+
+            lblCrafterLevels.Text = e.CrafterLevelsDisplay;
+            lblGathererLevels.Text = e.GathererLevelsDisplay;
+        }
+
+        #endregion
+
+        #region Form Event Handlers
+
+        /// <summary>
+        /// Form closing - saves settings and cleans up.
+        /// </summary>
+        private void WranglerForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            // Save window position
+            WranglerSettings.Instance.WindowX = this.Location.X;
+            WranglerSettings.Instance.WindowY = this.Location.Y;
+            WranglerSettings.Instance.Save();
+
+            // Cleanup Order Mode
+            _controller.StatusChanged -= OnStatusChanged;
+            _controller.LogMessage -= OnLogMessage;
+            _controller.OrderCompleted -= OnOrderCompleted;
+
+            // Cleanup Leveling Mode
+            _levelingController.DirectiveChanged -= OnDirectiveChanged;
+            _levelingController.LogMessage -= OnLevelingLogMessage;
+            _levelingController.LevelingCompleted -= OnLevelingCompleted;
+            _levelingController.ClassLevelsUpdated -= OnClassLevelsUpdated;
+
+            Instance = null;
         }
 
         #endregion
@@ -408,13 +561,20 @@ namespace TheWrangler
         /// </summary>
         private void UpdateUIState()
         {
+            // Order Mode
             btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
-
-            // Stop Gently is only enabled when executing
             btnStopGently.Enabled = _controller.IsExecuting;
             if (!_controller.IsExecuting)
             {
                 btnStopGently.Text = "Stop Gently";
+            }
+
+            // Leveling Mode
+            btnStartLeveling.Enabled = !_levelingController.IsRunning;
+            btnStopLeveling.Enabled = _levelingController.IsRunning;
+            if (!_levelingController.IsRunning)
+            {
+                btnStopLeveling.Text = "Stop";
             }
         }
 
@@ -433,17 +593,50 @@ namespace TheWrangler
             if (instance != null && instance.IsRemoteServerRunning)
             {
                 lblServerStatus.Text = $"Server: Running (:{instance.RemoteServerPort})";
-                lblServerStatus.ForeColor = Color.FromArgb(46, 204, 113); // Green
+                lblServerStatus.ForeColor = Color.FromArgb(46, 204, 113);
             }
             else
             {
                 lblServerStatus.Text = "Server: Stopped";
-                lblServerStatus.ForeColor = Color.FromArgb(150, 150, 150); // Gray
+                lblServerStatus.ForeColor = Color.FromArgb(150, 150, 150);
             }
         }
 
         /// <summary>
-        /// Appends a message to the log area.
+        /// Updates the missing items display.
+        /// </summary>
+        private void UpdateMissingItemsDisplay(MissingItemsResult result)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => UpdateMissingItemsDisplay(result)));
+                return;
+            }
+
+            if (result.HasMissingItems)
+            {
+                txtMissingItems.Clear();
+                foreach (var item in result.Items)
+                {
+                    txtMissingItems.SelectionColor = item.IsRequired ? Color.FromArgb(255, 100, 100) : Color.FromArgb(255, 200, 100);
+                    txtMissingItems.AppendText($"{item.Name}: {item.Needed}x");
+                    if (!item.IsRequired)
+                    {
+                        txtMissingItems.AppendText(" (optional)");
+                    }
+                    txtMissingItems.AppendText(Environment.NewLine);
+                }
+            }
+            else
+            {
+                txtMissingItems.Clear();
+                txtMissingItems.SelectionColor = Color.FromArgb(46, 204, 113);
+                txtMissingItems.AppendText("All required items available!");
+            }
+        }
+
+        /// <summary>
+        /// Appends a message to the Order Mode log area.
         /// Thread-safe.
         /// </summary>
         public void LogToUI(string message, Color color)
@@ -466,6 +659,40 @@ namespace TheWrangler
         public void LogToUI(string message)
         {
             LogToUI(message, Color.FromArgb(220, 220, 220));
+        }
+
+        /// <summary>
+        /// Appends a message to the Leveling Mode log area.
+        /// Thread-safe.
+        /// </summary>
+        public void LogToLevelingUI(string message, Color color)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => LogToLevelingUI(message, color)));
+                return;
+            }
+
+            txtLevelingLog.SelectionStart = txtLevelingLog.TextLength;
+            txtLevelingLog.SelectionColor = color;
+            txtLevelingLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+            txtLevelingLog.ScrollToCaret();
+        }
+
+        /// <summary>
+        /// Public method to log to leveling with default color.
+        /// </summary>
+        public void LogToLevelingUI(string message)
+        {
+            LogToLevelingUI(message, Color.FromArgb(220, 220, 220));
+        }
+
+        /// <summary>
+        /// Refreshes class level display. Call this periodically or on demand.
+        /// </summary>
+        public void RefreshClassLevels()
+        {
+            _levelingController.RefreshClassLevels();
         }
 
         #endregion
