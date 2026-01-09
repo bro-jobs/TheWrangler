@@ -95,7 +95,7 @@ namespace TheWrangler
 
             // Debug Mode Tab
             this.tabDebugMode = new System.Windows.Forms.TabPage();
-            this.lblDebugCommands = new System.Windows.Forms.Label();
+            this.txtDebugCommands = new System.Windows.Forms.RichTextBox();
             this.txtDebugCommand = new System.Windows.Forms.TextBox();
             this.btnRunDebugCommand = new System.Windows.Forms.Button();
             this.txtDebugLog = new System.Windows.Forms.RichTextBox();
@@ -534,7 +534,7 @@ namespace TheWrangler
             //
             // tabDebugMode - Debug Mode tab page
             //
-            this.tabDebugMode.Controls.Add(this.lblDebugCommands);
+            this.tabDebugMode.Controls.Add(this.txtDebugCommands);
             this.tabDebugMode.Controls.Add(this.txtDebugCommand);
             this.tabDebugMode.Controls.Add(this.btnRunDebugCommand);
             this.tabDebugMode.Controls.Add(this.txtDebugLog);
@@ -547,16 +547,19 @@ namespace TheWrangler
             this.tabDebugMode.UseVisualStyleBackColor = true;
 
             //
-            // lblDebugCommands - Debug commands help label
+            // txtDebugCommands - Debug commands help (scrollable)
             //
-            this.lblDebugCommands.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            this.txtDebugCommands.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblDebugCommands.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.lblDebugCommands.Location = new System.Drawing.Point(10, 10);
-            this.lblDebugCommands.Name = "lblDebugCommands";
-            this.lblDebugCommands.Size = new System.Drawing.Size(502, 60);
-            this.lblDebugCommands.TabIndex = 0;
-            this.lblDebugCommands.Text = "Available commands:\r\n/test1 [job] - Test ChangeClass (e.g. /test1 Carpenter)\r\n/test2 [id] - Test TeleportTo (e.g. /test2 8 for Limsa)\r\n/test3 - Test Navigation (move forward 10 units)\r\n/test4 - Test NPC listing (list nearby NPCs)";
+            this.txtDebugCommands.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.txtDebugCommands.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.txtDebugCommands.Location = new System.Drawing.Point(10, 10);
+            this.txtDebugCommands.Name = "txtDebugCommands";
+            this.txtDebugCommands.ReadOnly = true;
+            this.txtDebugCommands.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
+            this.txtDebugCommands.Size = new System.Drawing.Size(502, 60);
+            this.txtDebugCommands.TabIndex = 0;
+            this.txtDebugCommands.Text = "/test1 [job] - Change class (e.g. /test1 Carpenter) + auto-confirm dialogs\n/test2 [id] - Teleport (e.g. /test2 8 for Limsa, /test2 2 for Gridania)\n/test3 - Navigation test (move forward)\n/test4 - List nearby NPCs\n/stop - Stop movement\n/help - Show all commands";
 
             //
             // txtDebugCommand - Debug command input
@@ -670,7 +673,7 @@ namespace TheWrangler
 
         // Debug Mode Tab controls
         private System.Windows.Forms.TabPage tabDebugMode;
-        private System.Windows.Forms.Label lblDebugCommands;
+        private System.Windows.Forms.RichTextBox txtDebugCommands;
         private System.Windows.Forms.TextBox txtDebugCommand;
         private System.Windows.Forms.Button btnRunDebugCommand;
         private System.Windows.Forms.RichTextBox txtDebugLog;
