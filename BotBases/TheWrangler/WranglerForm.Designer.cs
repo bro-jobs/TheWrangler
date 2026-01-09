@@ -71,6 +71,7 @@ namespace TheWrangler
             this.txtRemotePort = new System.Windows.Forms.TextBox();
             this.lblServerStatus = new System.Windows.Forms.Label();
             this.btnRun = new System.Windows.Forms.Button();
+            this.btnResumeAll = new System.Windows.Forms.Button();
             this.btnStopGently = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.txtLog = new System.Windows.Forms.RichTextBox();
@@ -166,6 +167,7 @@ namespace TheWrangler
             this.tabOrderMode.Controls.Add(this.txtRemotePort);
             this.tabOrderMode.Controls.Add(this.lblServerStatus);
             this.tabOrderMode.Controls.Add(this.btnRun);
+            this.tabOrderMode.Controls.Add(this.btnResumeAll);
             this.tabOrderMode.Controls.Add(this.btnStopGently);
             this.tabOrderMode.Controls.Add(this.lblStatus);
             this.tabOrderMode.Controls.Add(this.txtLog);
@@ -260,19 +262,30 @@ namespace TheWrangler
             this.lblServerStatus.Text = "Server: Stopped";
 
             //
-            // btnRun - Main run button
+            // btnRun - Start button (launches new order or shows resume dialog)
             //
-            this.btnRun.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
-            | System.Windows.Forms.AnchorStyles.Right)));
             this.btnRun.Enabled = false;
             this.btnRun.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.btnRun.Location = new System.Drawing.Point(13, 140);
             this.btnRun.Name = "btnRun";
-            this.btnRun.Size = new System.Drawing.Size(350, 50);
+            this.btnRun.Size = new System.Drawing.Size(170, 50);
             this.btnRun.TabIndex = 5;
-            this.btnRun.Text = "Run";
+            this.btnRun.Text = "Start";
             this.btnRun.UseVisualStyleBackColor = true;
             this.btnRun.Click += new System.EventHandler(this.btnRun_Click);
+
+            //
+            // btnResumeAll - Resume all incomplete orders button
+            //
+            this.btnResumeAll.Enabled = false;
+            this.btnResumeAll.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnResumeAll.Location = new System.Drawing.Point(188, 140);
+            this.btnResumeAll.Name = "btnResumeAll";
+            this.btnResumeAll.Size = new System.Drawing.Size(130, 50);
+            this.btnResumeAll.TabIndex = 13;
+            this.btnResumeAll.Text = "Resume All";
+            this.btnResumeAll.UseVisualStyleBackColor = true;
+            this.btnResumeAll.Click += new System.EventHandler(this.btnResumeAll_Click);
 
             //
             // btnStopGently - Stop Gently button
@@ -649,6 +662,7 @@ namespace TheWrangler
         private System.Windows.Forms.TextBox txtRemotePort;
         private System.Windows.Forms.Label lblServerStatus;
         private System.Windows.Forms.Button btnRun;
+        private System.Windows.Forms.Button btnResumeAll;
         private System.Windows.Forms.Button btnStopGently;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.RichTextBox txtLog;
