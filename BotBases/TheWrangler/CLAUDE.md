@@ -116,10 +116,14 @@ Log($"Stopped. Final location: {Core.Me.Location}");
 - `gearSet.InUse` - Whether gearset is configured
 
 ### NPC Interaction
+- `GameObjectManager.GameObjects` - **USE THIS** to enumerate all objects
 - `GameObjectManager.GetObjectsByNPCId(npcId)` - Find NPCs by ID
 - `npc.Interact()` - Interact with NPC
 - `npc.IsWithinInteractRange` - Check if in range
 - `DataManager.GetLocalizedNPCName(npcId)` - Get NPC name
+
+**IMPORTANT:** Use `GameObjectManager.GameObjects` NOT `GetObjectsOfType<T>()`.
+`GetObjectsOfType` returns empty results while `GameObjects` works correctly.
 
 ### Dialog Windows
 - `Talk.DialogOpen` / `Talk.Next()` - Dialog text
