@@ -41,9 +41,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
+using Buddy.Coroutines;
+using Clio.Utilities;
 using ff14bot;
+using ff14bot.Behavior;
 using ff14bot.Enums;
+using ff14bot.Helpers;
 using ff14bot.Managers;
+using ff14bot.Navigation;
+using ff14bot.Objects;
+using ff14bot.Pathing;
+using ff14bot.RemoteWindows;
+using TreeSharp;
 
 namespace TheWrangler
 {
@@ -795,45 +804,468 @@ namespace TheWrangler
 
         private async Task<bool> ExecuteGetToAsync(ProfileElement element, CancellationToken token)
         {
-            var zoneId = element.Attributes.GetValueOrDefault("ZoneId", "0");
-            var xyz = element.Attributes.GetValueOrDefault("XYZ", "");
+            var zoneIdStr = element.Attributes.GetValueOrDefault("ZoneId", "0");
+            var xyzStr = element.Attributes.GetValueOrDefault("XYZ", "");
+
+            if (!uint.TryParse(zoneIdStr, out var zoneId) || zoneId == 0)
+            {
+                _controller.Log($"GetTo: Invalid ZoneId '{zoneIdStr}'");
+                return false;
+            }
+
+            // Parse XYZ coordinates
+            if (!TryParseVector3(xyzStr, out var targetLocation))
+            {
+                _controller.Log($"GetTo: Invalid XYZ '{xyzStr}'");
+                return false;
+            }
 
             _controller.SetDirective("Navigating", $"Zone: {zoneId}");
-            _controller.Log($"GetTo: Zone {zoneId}, XYZ {xyz}");
+            _controller.Log($"GetTo: Zone {zoneId}, XYZ {targetLocation}");
 
-            // TODO: Implement actual navigation via ff14bot
-            await Task.Delay(100, token);
+            return await NavigateToLocationAsync(zoneId, targetLocation, token);
+        }
 
+        /// <summary>
+        /// Navigate to a location, handling zone transitions if needed.
+        /// </summary>
+        public async Task<bool> NavigateToLocationAsync(uint zoneId, Vector3 targetLocation, CancellationToken token)
+        {
+            try
+            {
+                // If in different zone, need to handle zone transition
+                if (WorldManager.ZoneId != zoneId)
+                {
+                    // First try to teleport to the zone
+                    var aetherytes = WorldManager.AetheryteIdsForZone(zoneId);
+                    if (aetherytes.Length > 0)
+                    {
+                        // Find closest aetheryte to target
+                        var closest = aetherytes.OrderBy(a => a.Item2.DistanceSqr(targetLocation)).First();
+
+                        _controller.Log($"GetTo: Teleporting to zone {zoneId} first");
+                        WorldManager.TeleportById(closest.Item1);
+
+                        // Wait for teleport
+                        await WaitForConditionAsync(() => Core.Me.IsCasting, 5000, token);
+                        await WaitForConditionAsync(() => !Core.Me.IsCasting, 15000, token);
+                        await WaitForConditionAsync(() => CommonBehaviors.IsLoading, 5000, token);
+                        await WaitForConditionAsync(() => !CommonBehaviors.IsLoading, 60000, token);
+                        await Task.Delay(1000, token);
+                    }
+                    else
+                    {
+                        // Try to get a path that includes zone transitions
+                        var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
+                        if (path == null)
+                        {
+                            _controller.Log($"GetTo: Cannot find path to zone {zoneId}");
+                            return false;
+                        }
+
+                        // Execute the path
+                        return await ExecuteNavGraphPathAsync(path, token);
+                    }
+                }
+
+                // Now navigate to the specific location
+                if (WorldManager.ZoneId == zoneId)
+                {
+                    // Check if we're already close
+                    if (Core.Me.Location.Distance(targetLocation) < 5f)
+                    {
+                        _controller.Log("GetTo: Already at destination");
+                        return true;
+                    }
+
+                    // Get path within the zone
+                    var path = await NavGraph.GetPathAsync(zoneId, targetLocation);
+                    if (path != null && path.Count > 0)
+                    {
+                        return await ExecuteNavGraphPathAsync(path, token);
+                    }
+                    else
+                    {
+                        // Try direct movement
+                        return await MoveToLocationAsync(targetLocation, token);
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"GetTo error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Execute a NavGraph path.
+        /// </summary>
+        private async Task<bool> ExecuteNavGraphPathAsync(Queue<NavGraph.INode> path, CancellationToken token)
+        {
+            var composite = NavGraph.NavGraphConsumer(r => path);
+            var context = new object();
+
+            while (path.Count > 0)
+            {
+                if (token.IsCancellationRequested) return false;
+
+                composite.Start(context);
+                await Task.Yield();
+
+                while (composite.Tick(context) == RunStatus.Running)
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        composite.Stop(context);
+                        Navigator.Stop();
+                        return false;
+                    }
+                    await Task.Yield();
+                }
+
+                composite.Stop(context);
+                await Task.Yield();
+            }
+
+            Navigator.Stop();
             return true;
+        }
+
+        /// <summary>
+        /// Move directly to a location within current zone.
+        /// </summary>
+        private async Task<bool> MoveToLocationAsync(Vector3 targetLocation, CancellationToken token, float tolerance = 3f)
+        {
+            var timeout = 60000; // 60 seconds
+            var elapsed = 0;
+
+            while (Core.Me.Location.Distance(targetLocation) > tolerance && elapsed < timeout)
+            {
+                if (token.IsCancellationRequested) return false;
+
+                Navigator.PlayerMover.MoveTowards(targetLocation);
+                await Task.Delay(100, token);
+                elapsed += 100;
+            }
+
+            Navigator.PlayerMover.MoveStop();
+            Navigator.Stop();
+
+            return Core.Me.Location.Distance(targetLocation) <= tolerance;
+        }
+
+        /// <summary>
+        /// Parse a Vector3 string like "1.23, 4.56, 7.89"
+        /// </summary>
+        private bool TryParseVector3(string input, out Vector3 result)
+        {
+            result = Vector3.Zero;
+            if (string.IsNullOrWhiteSpace(input))
+                return false;
+
+            // Handle formats like "1.23, 4.56, 7.89" or "<1.23, 4.56, 7.89>"
+            input = input.Trim().Trim('<', '>', '(', ')');
+            var parts = input.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != 3)
+                return false;
+
+            if (float.TryParse(parts[0].Trim(), out var x) &&
+                float.TryParse(parts[1].Trim(), out var y) &&
+                float.TryParse(parts[2].Trim(), out var z))
+            {
+                result = new Vector3(x, y, z);
+                return true;
+            }
+
+            return false;
         }
 
         private async Task<bool> ExecuteTeleportToAsync(ProfileElement element, CancellationToken token)
         {
-            var aetheryteId = element.Attributes.GetValueOrDefault("AetheryteId", "0");
+            var aetheryteIdStr = element.Attributes.GetValueOrDefault("AetheryteId", "0");
+            var zoneIdStr = element.Attributes.GetValueOrDefault("ZoneId", "0");
             var name = element.Attributes.GetValueOrDefault("Name", "");
+            var force = element.Attributes.GetValueOrDefault("Force", "false").ToLower() == "true";
+
+            if (!uint.TryParse(aetheryteIdStr, out var aetheryteId))
+            {
+                _controller.Log($"TeleportTo: Invalid AetheryteId '{aetheryteIdStr}'");
+                return false;
+            }
+
+            // If only ZoneId provided, find the aetheryte for that zone
+            if (aetheryteId == 0 && uint.TryParse(zoneIdStr, out var zoneId) && zoneId > 0)
+            {
+                var aetherytes = WorldManager.AetheryteIdsForZone(zoneId);
+                if (aetherytes.Length > 0)
+                {
+                    aetheryteId = aetherytes[0].Item1;
+                }
+            }
+
+            if (aetheryteId == 0)
+            {
+                _controller.Log("TeleportTo: No valid aetheryte specified");
+                return false;
+            }
+
+            // Get target zone
+            var targetZoneId = WorldManager.GetZoneForAetheryteId(aetheryteId);
+            if (targetZoneId == 0)
+            {
+                _controller.Log($"TeleportTo: Could not find zone for AetheryteId {aetheryteId}");
+                return false;
+            }
+
+            // Check if already in target zone (unless Force)
+            if (!force && WorldManager.ZoneId == targetZoneId)
+            {
+                _controller.Log($"TeleportTo: Already in zone {targetZoneId}");
+                return true;
+            }
 
             _controller.SetDirective("Teleporting", $"To: {name}");
-            _controller.Log($"TeleportTo: {name} (Aetheryte {aetheryteId})");
+            _controller.Log($"TeleportTo: {name} (Aetheryte {aetheryteId}, Zone {targetZoneId})");
 
-            // TODO: Implement actual teleportation
-            await Task.Delay(100, token);
+            try
+            {
+                // Check if we can teleport
+                if (!WorldManager.CanTeleport())
+                {
+                    _controller.Log("TeleportTo: Cannot teleport right now, waiting...");
+                    var canTeleport = await WaitForConditionAsync(() => WorldManager.CanTeleport(), 10000, token);
+                    if (!canTeleport)
+                    {
+                        _controller.Log("TeleportTo: Still cannot teleport");
+                        return false;
+                    }
+                }
 
-            return true;
+                // Check if we have the aetheryte unlocked
+                var locations = WorldManager.AvailableLocations;
+                if (!locations.Any(l => l.AetheryteId == aetheryteId))
+                {
+                    _controller.Log($"TeleportTo: Aetheryte {aetheryteId} is not unlocked");
+                    return false;
+                }
+
+                // Teleport
+                WorldManager.TeleportById(aetheryteId);
+
+                // Wait for casting
+                await WaitForConditionAsync(() => Core.Me.IsCasting, 5000, token);
+
+                // Wait for cast to complete
+                await WaitForConditionAsync(() => !Core.Me.IsCasting, 15000, token);
+
+                // Wait for loading screen
+                await WaitForConditionAsync(() => CommonBehaviors.IsLoading, 5000, token);
+
+                // Wait for loading to finish
+                await WaitForConditionAsync(() => !CommonBehaviors.IsLoading, 60000, token);
+
+                // Verify we arrived
+                if (WorldManager.ZoneId == targetZoneId)
+                {
+                    _controller.Log($"TeleportTo: Arrived in zone {targetZoneId}");
+                    await Task.Delay(1000, token); // Brief settle time
+                    return true;
+                }
+                else
+                {
+                    _controller.Log($"TeleportTo: Failed to arrive in zone {targetZoneId}, current zone: {WorldManager.ZoneId}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"TeleportTo error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Waits for a condition to be true with timeout.
+        /// </summary>
+        private async Task<bool> WaitForConditionAsync(Func<bool> condition, int timeoutMs, CancellationToken token)
+        {
+            var elapsed = 0;
+            while (!condition() && elapsed < timeoutMs)
+            {
+                if (token.IsCancellationRequested) return false;
+                await Task.Delay(100, token);
+                elapsed += 100;
+            }
+            return condition();
         }
 
         private async Task<bool> ExecuteChangeClassAsync(ProfileElement element, CancellationToken token)
         {
             var job = element.Attributes.GetValueOrDefault("Job", "");
+            var force = element.Attributes.GetValueOrDefault("Force", "false").ToLower() == "true";
 
-            _controller.SetDirective("Changing Class", $"To: {job}");
-            _controller.Log($"ChangeClass: {job}");
+            return await ChangeClassAsync(job, force, token);
+        }
 
-            // TODO: Implement actual class change
-            await Task.Delay(100, token);
+        /// <summary>
+        /// Switch to a different class/job using gearsets.
+        /// </summary>
+        public async Task<bool> ChangeClassAsync(string jobName, bool force, CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(jobName))
+            {
+                _controller.Log("ChangeClass: No job specified");
+                return false;
+            }
+
+            // Parse the job name to ClassJobType
+            if (!Enum.TryParse<ClassJobType>(jobName.Trim(), true, out var targetJob))
+            {
+                _controller.Log($"ChangeClass: Unknown job '{jobName}'");
+                return false;
+            }
+
+            // Check if already on the target class
+            if (!force && Core.Me.CurrentJob == targetJob)
+            {
+                _controller.Log($"ChangeClass: Already on {targetJob}");
+                return true;
+            }
+
+            _controller.SetDirective("Changing Class", $"To: {targetJob}");
+            _controller.Log($"ChangeClass: {targetJob}");
+
+            try
+            {
+                // Find a gearset for the target job
+                var gearSets = GearsetManager.GearSets.Where(gs => gs.InUse && gs.Class == targetJob).ToList();
+
+                if (gearSets.Count > 0)
+                {
+                    // Use the first matching gearset
+                    var gearSet = gearSets.First();
+                    _controller.Log($"ChangeClass: Activating gearset {gearSet.Index} ({gearSet.Class})");
+
+                    gearSet.Activate();
+
+                    // Wait for dialog to potentially appear
+                    await Task.Delay(2000, token);
+
+                    // Handle "item not found, replace?" dialogs - there may be multiple
+                    // Keep clicking Yes until no more dialogs appear or we've changed class
+                    var dialogTimeout = 10000;
+                    var dialogElapsed = 0;
+                    while (dialogElapsed < dialogTimeout && Core.Me.CurrentJob != targetJob)
+                    {
+                        if (token.IsCancellationRequested) return false;
+
+                        if (SelectYesno.IsOpen)
+                        {
+                            _controller.Log("ChangeClass: Confirming gear replacement");
+                            SelectYesno.ClickYes();
+                            await Task.Delay(500, token);
+                            dialogElapsed += 500;
+                            continue;
+                        }
+
+                        await Task.Delay(100, token);
+                        dialogElapsed += 100;
+                    }
+
+                    // Additional wait for class change to complete
+                    await WaitForConditionAsync(() => Core.Me.CurrentJob == targetJob, 3000, token);
+
+                    if (Core.Me.CurrentJob == targetJob)
+                    {
+                        _controller.Log($"ChangeClass: Successfully changed to {targetJob}");
+                        _controller.RefreshClassLevels();
+                        return true;
+                    }
+                    else
+                    {
+                        _controller.Log($"ChangeClass: Failed to change to {targetJob}, still on {Core.Me.CurrentJob}");
+                        return false;
+                    }
+                }
+                else
+                {
+                    // No gearset found - try equipping a weapon for the class
+                    _controller.Log($"ChangeClass: No gearset found for {targetJob}, trying to equip weapon");
+                    return await EquipWeaponForClassAsync(targetJob, token);
+                }
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"ChangeClass error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Try to equip a weapon for a class when no gearset exists.
+        /// </summary>
+        private async Task<bool> EquipWeaponForClassAsync(ClassJobType targetJob, CancellationToken token)
+        {
+            // Map job to weapon category
+            var weaponCategory = GetWeaponCategoryForJob(targetJob);
+            if (weaponCategory == ItemUiCategory.Unknown)
+            {
+                _controller.Log($"ChangeClass: Unknown weapon category for {targetJob}");
+                return false;
+            }
+
+            // Find a weapon for this class in inventory/armory
+            var weapon = InventoryManager.FilledInventoryAndArmory
+                .Where(i => i.Item.EquipmentCatagory == weaponCategory)
+                .OrderByDescending(i => i.Item.ItemLevel)
+                .FirstOrDefault();
+
+            if (weapon == null)
+            {
+                _controller.Log($"ChangeClass: No weapon found for {targetJob}");
+                return false;
+            }
+
+            // Get main hand slot
+            var mainHand = InventoryManager.GetBagByInventoryBagId(InventoryBagId.EquippedItems)[EquipmentSlot.MainHand];
+
+            _controller.Log($"ChangeClass: Equipping {weapon.Name}");
+            weapon.Move(mainHand);
+
+            await Task.Delay(1500, token);
+
+            // Save gearset
+            ChatManager.SendChat("/gs save");
+            await Task.Delay(1000, token);
 
             _controller.RefreshClassLevels();
+            return Core.Me.CurrentJob == targetJob;
+        }
 
-            return true;
+        /// <summary>
+        /// Get the weapon category for a job.
+        /// </summary>
+        private ItemUiCategory GetWeaponCategoryForJob(ClassJobType job)
+        {
+            return job switch
+            {
+                ClassJobType.Carpenter => ItemUiCategory.Carpenters_Primary_Tool,
+                ClassJobType.Blacksmith => ItemUiCategory.Blacksmiths_Primary_Tool,
+                ClassJobType.Armorer => ItemUiCategory.Armorers_Primary_Tool,
+                ClassJobType.Goldsmith => ItemUiCategory.Goldsmiths_Primary_Tool,
+                ClassJobType.Leatherworker => ItemUiCategory.Leatherworkers_Primary_Tool,
+                ClassJobType.Weaver => ItemUiCategory.Weavers_Primary_Tool,
+                ClassJobType.Alchemist => ItemUiCategory.Alchemists_Primary_Tool,
+                ClassJobType.Culinarian => ItemUiCategory.Culinarians_Primary_Tool,
+                ClassJobType.Miner => ItemUiCategory.Miners_Primary_Tool,
+                ClassJobType.Botanist => ItemUiCategory.Botanists_Primary_Tool,
+                ClassJobType.Fisher => ItemUiCategory.Fishers_Primary_Tool,
+                _ => ItemUiCategory.Unknown
+            };
         }
 
         private async Task<bool> ExecuteWaitTimerAsync(ProfileElement element, CancellationToken token)
@@ -878,13 +1310,140 @@ namespace TheWrangler
 
         private async Task<bool> ExecuteTalkToAsync(ProfileElement element, CancellationToken token)
         {
-            var npcId = element.Attributes.GetValueOrDefault("NpcId", "0");
-            _controller.Log($"TalkTo: NPC {npcId}");
+            var npcIdStr = element.Attributes.GetValueOrDefault("NpcId", "0");
+            var xyzStr = element.Attributes.GetValueOrDefault("XYZ", "");
+            var selectStringSlot = element.Attributes.GetValueOrDefault("SelectStringOverride", "0");
 
-            // TODO: Implement NPC interaction
-            await Task.Delay(100, token);
+            if (!uint.TryParse(npcIdStr, out var npcId) || npcId == 0)
+            {
+                _controller.Log($"TalkTo: Invalid NpcId '{npcIdStr}'");
+                return false;
+            }
 
-            return true;
+            return await TalkToNpcAsync(npcId, xyzStr, selectStringSlot, token);
+        }
+
+        /// <summary>
+        /// Talk to an NPC.
+        /// </summary>
+        public async Task<bool> TalkToNpcAsync(uint npcId, string xyzHint, string selectStringSlot, CancellationToken token)
+        {
+            var npcName = DataManager.GetLocalizedNPCName((int)npcId);
+            _controller.Log($"TalkTo: NPC {npcName} ({npcId})");
+
+            try
+            {
+                // Find the NPC
+                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                // If NPC not found and we have a location hint, navigate there
+                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                {
+                    _controller.Log($"TalkTo: NPC not visible, navigating to hint location");
+                    await MoveToLocationAsync(location, token, 5f);
+
+                    // Try to find NPC again
+                    npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                        .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                }
+
+                if (npc == null)
+                {
+                    _controller.Log($"TalkTo: NPC {npcName} not found");
+                    return false;
+                }
+
+                // Move to NPC if not in range
+                if (!npc.IsWithinInteractRange)
+                {
+                    _controller.Log($"TalkTo: Moving to {npcName}");
+                    await MoveToLocationAsync(npc.Location, token, 4f);
+                }
+
+                // Wait for NPC to become interactable
+                await WaitForConditionAsync(() => npc.IsWithinInteractRange, 5000, token);
+
+                if (!npc.IsWithinInteractRange)
+                {
+                    _controller.Log($"TalkTo: Could not reach {npcName}");
+                    return false;
+                }
+
+                // Interact with NPC
+                npc.Interact();
+
+                // Handle dialog
+                var talked = false;
+                var timeout = 30000;
+                var elapsed = 0;
+
+                while (elapsed < timeout)
+                {
+                    if (token.IsCancellationRequested) return false;
+
+                    // Handle various dialog windows
+                    if (Talk.DialogOpen)
+                    {
+                        Talk.Next();
+                        talked = true;
+                        await Task.Delay(200, token);
+                        elapsed += 200;
+                        continue;
+                    }
+
+                    if (SelectYesno.IsOpen)
+                    {
+                        SelectYesno.ClickYes();
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectString.IsOpen)
+                    {
+                        if (int.TryParse(selectStringSlot, out var slot))
+                        {
+                            SelectString.ClickSlot((uint)slot);
+                        }
+                        else
+                        {
+                            SelectString.ClickSlot(0);
+                        }
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectIconString.IsOpen)
+                    {
+                        SelectIconString.ClickSlot(0);
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    // Check if dialog is done
+                    if (talked && !Talk.DialogOpen && !SelectYesno.IsOpen && !SelectString.IsOpen && !SelectIconString.IsOpen)
+                    {
+                        await Task.Delay(500, token);
+                        if (!Talk.DialogOpen && !SelectYesno.IsOpen && !SelectString.IsOpen && !SelectIconString.IsOpen)
+                        {
+                            break;
+                        }
+                    }
+
+                    await Task.Delay(100, token);
+                    elapsed += 100;
+                }
+
+                return talked;
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"TalkTo error: {ex.Message}");
+                return false;
+            }
         }
 
         private async Task<bool> ExecuteSmallTalkAsync(ProfileElement element, CancellationToken token)
@@ -899,30 +1458,295 @@ namespace TheWrangler
 
         private async Task<bool> ExecutePickupQuestAsync(ProfileElement element, CancellationToken token)
         {
-            var questId = element.Attributes.GetValueOrDefault("QuestId", "0");
-            var npcId = element.Attributes.GetValueOrDefault("NpcId", "0");
+            var questIdStr = element.Attributes.GetValueOrDefault("QuestId", "0");
+            var npcIdStr = element.Attributes.GetValueOrDefault("NpcId", "0");
+            var xyzStr = element.Attributes.GetValueOrDefault("XYZ", "");
 
-            _controller.SetDirective("Picking Up Quest", $"Quest {questId}");
-            _controller.Log($"PickupQuest: Quest {questId} from NPC {npcId}");
+            if (!uint.TryParse(questIdStr, out var questId) || questId == 0)
+            {
+                _controller.Log($"PickupQuest: Invalid QuestId '{questIdStr}'");
+                return false;
+            }
 
-            // TODO: Implement quest pickup
-            await Task.Delay(100, token);
+            if (!uint.TryParse(npcIdStr, out var npcId) || npcId == 0)
+            {
+                _controller.Log($"PickupQuest: Invalid NpcId '{npcIdStr}'");
+                return false;
+            }
 
-            return true;
+            return await PickupQuestAsync(questId, npcId, xyzStr, token);
+        }
+
+        /// <summary>
+        /// Pick up a quest from an NPC.
+        /// </summary>
+        public async Task<bool> PickupQuestAsync(uint questId, uint npcId, string xyzHint, CancellationToken token)
+        {
+            // Check if we already have the quest
+            if (QuestLogManager.HasQuest((int)questId))
+            {
+                _controller.Log($"PickupQuest: Already have quest {questId}");
+                return true;
+            }
+
+            // Check if quest is already completed
+            if (QuestLogManager.IsQuestCompleted(questId))
+            {
+                _controller.Log($"PickupQuest: Quest {questId} already completed");
+                return true;
+            }
+
+            var npcName = DataManager.GetLocalizedNPCName((int)npcId);
+            _controller.SetDirective("Picking Up Quest", $"Quest {questId} from {npcName}");
+            _controller.Log($"PickupQuest: Quest {questId} from {npcName}");
+
+            try
+            {
+                // Find the NPC
+                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                // Navigate to hint location if NPC not found
+                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                {
+                    await MoveToLocationAsync(location, token, 5f);
+                    npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                        .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                }
+
+                if (npc == null)
+                {
+                    _controller.Log($"PickupQuest: NPC {npcName} not found");
+                    return false;
+                }
+
+                // Move to NPC
+                if (!npc.IsWithinInteractRange)
+                {
+                    await MoveToLocationAsync(npc.Location, token, 4f);
+                }
+
+                // Interact
+                npc.Interact();
+
+                // Handle quest dialog
+                var timeout = 30000;
+                var elapsed = 0;
+
+                while (elapsed < timeout && !QuestLogManager.HasQuest((int)questId))
+                {
+                    if (token.IsCancellationRequested) return false;
+
+                    if (Talk.DialogOpen)
+                    {
+                        Talk.Next();
+                        await Task.Delay(200, token);
+                        elapsed += 200;
+                        continue;
+                    }
+
+                    if (SelectYesno.IsOpen)
+                    {
+                        SelectYesno.ClickYes();
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectString.IsOpen)
+                    {
+                        SelectString.ClickSlot(0);
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectIconString.IsOpen)
+                    {
+                        SelectIconString.ClickSlot(0);
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (JournalAccept.IsOpen)
+                    {
+                        JournalAccept.Accept();
+                        await Task.Delay(1000, token);
+                        elapsed += 1000;
+                        continue;
+                    }
+
+                    await Task.Delay(100, token);
+                    elapsed += 100;
+                }
+
+                return QuestLogManager.HasQuest((int)questId);
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"PickupQuest error: {ex.Message}");
+                return false;
+            }
         }
 
         private async Task<bool> ExecuteTurnInAsync(ProfileElement element, CancellationToken token)
         {
-            var questId = element.Attributes.GetValueOrDefault("QuestId", "0");
-            var itemId = element.Attributes.GetValueOrDefault("ItemId", "");
+            var questIdStr = element.Attributes.GetValueOrDefault("QuestId", "0");
+            var npcIdStr = element.Attributes.GetValueOrDefault("NpcId", "0");
+            var xyzStr = element.Attributes.GetValueOrDefault("XYZ", "");
+            var rewardSlotStr = element.Attributes.GetValueOrDefault("RewardSlot", "-1");
 
-            _controller.SetDirective("Turning In Quest", $"Quest {questId}");
-            _controller.Log($"TurnIn: Quest {questId}, Item {itemId}");
+            if (!uint.TryParse(questIdStr, out var questId) || questId == 0)
+            {
+                _controller.Log($"TurnIn: Invalid QuestId '{questIdStr}'");
+                return false;
+            }
 
-            // TODO: Implement quest turn-in
-            await Task.Delay(100, token);
+            if (!uint.TryParse(npcIdStr, out var npcId) || npcId == 0)
+            {
+                _controller.Log($"TurnIn: Invalid NpcId '{npcIdStr}'");
+                return false;
+            }
 
-            return true;
+            int.TryParse(rewardSlotStr, out var rewardSlot);
+
+            return await TurnInQuestAsync(questId, npcId, xyzStr, rewardSlot, token);
+        }
+
+        /// <summary>
+        /// Turn in a quest to an NPC.
+        /// </summary>
+        public async Task<bool> TurnInQuestAsync(uint questId, uint npcId, string xyzHint, int rewardSlot, CancellationToken token)
+        {
+            // Check if quest is already completed
+            if (QuestLogManager.IsQuestCompleted(questId))
+            {
+                _controller.Log($"TurnIn: Quest {questId} already completed");
+                return true;
+            }
+
+            // Check if we have the quest
+            if (!QuestLogManager.HasQuest((int)questId))
+            {
+                _controller.Log($"TurnIn: Don't have quest {questId}");
+                return false;
+            }
+
+            var npcName = DataManager.GetLocalizedNPCName((int)npcId);
+            _controller.SetDirective("Turning In Quest", $"Quest {questId} to {npcName}");
+            _controller.Log($"TurnIn: Quest {questId} to {npcName}");
+
+            try
+            {
+                // Find the NPC
+                var npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                    .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+
+                // Navigate to hint location if NPC not found
+                if (npc == null && !string.IsNullOrEmpty(xyzHint) && TryParseVector3(xyzHint, out var location))
+                {
+                    await MoveToLocationAsync(location, token, 5f);
+                    npc = GameObjectManager.GetObjectsByNPCId(npcId)
+                        .FirstOrDefault(n => n.IsVisible && n.IsTargetable);
+                }
+
+                if (npc == null)
+                {
+                    _controller.Log($"TurnIn: NPC {npcName} not found");
+                    return false;
+                }
+
+                // Move to NPC
+                if (!npc.IsWithinInteractRange)
+                {
+                    await MoveToLocationAsync(npc.Location, token, 4f);
+                }
+
+                // Interact
+                npc.Interact();
+
+                // Handle turn-in dialog
+                var timeout = 30000;
+                var elapsed = 0;
+                var rewardSelected = false;
+
+                while (elapsed < timeout && !QuestLogManager.IsQuestCompleted(questId))
+                {
+                    if (token.IsCancellationRequested) return false;
+
+                    if (Talk.DialogOpen)
+                    {
+                        Talk.Next();
+                        await Task.Delay(200, token);
+                        elapsed += 200;
+                        continue;
+                    }
+
+                    if (SelectYesno.IsOpen)
+                    {
+                        SelectYesno.ClickYes();
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectString.IsOpen)
+                    {
+                        SelectString.ClickSlot(0);
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (SelectIconString.IsOpen)
+                    {
+                        SelectIconString.ClickSlot(0);
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    if (JournalResult.IsOpen)
+                    {
+                        // Select reward if needed
+                        if (rewardSlot >= 0 && !rewardSelected)
+                        {
+                            JournalResult.SelectSlot(rewardSlot);
+                            rewardSelected = true;
+                            await Task.Delay(500, token);
+                            elapsed += 500;
+                        }
+
+                        if (JournalResult.ButtonClickable)
+                        {
+                            JournalResult.Complete();
+                            await Task.Delay(1000, token);
+                            elapsed += 1000;
+                        }
+                        continue;
+                    }
+
+                    if (Request.IsOpen)
+                    {
+                        // Hand over requested items
+                        await CommonTasks.HandOverRequestedItems();
+                        await Task.Delay(500, token);
+                        elapsed += 500;
+                        continue;
+                    }
+
+                    await Task.Delay(100, token);
+                    elapsed += 100;
+                }
+
+                return QuestLogManager.IsQuestCompleted(questId);
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"TurnIn error: {ex.Message}");
+                return false;
+            }
         }
 
         private bool ExecuteLogMessage(ProfileElement element)
@@ -952,10 +1776,121 @@ namespace TheWrangler
 
         private async Task<bool> ExecuteAutoEquipAsync(ProfileElement element, CancellationToken token)
         {
-            _controller.Log("AutoInventoryEquip");
-            // TODO: Implement auto-equip
-            await Task.Delay(100, token);
-            return true;
+            _controller.Log("AutoInventoryEquip: Equipping best gear");
+            _controller.SetDirective("Equipping", "Best available gear");
+
+            return await AutoEquipBestGearAsync(token);
+        }
+
+        /// <summary>
+        /// Auto-equip the best available gear for current class.
+        /// </summary>
+        public async Task<bool> AutoEquipBestGearAsync(CancellationToken token)
+        {
+            try
+            {
+                var equipped = InventoryManager.EquippedItems;
+                var upgraded = false;
+
+                foreach (var slot in equipped)
+                {
+                    if (token.IsCancellationRequested) return false;
+                    if (!slot.IsValid) continue;
+                    if (slot.Slot == 0 && !slot.IsFilled)
+                    {
+                        // Main hand must have something
+                        continue;
+                    }
+
+                    // Get valid equipment categories for this slot
+                    var categories = GetEquipmentCategoriesForSlot(slot.Slot);
+                    if (categories.Count == 0) continue;
+
+                    // Find best item from inventory/armory
+                    var bestItem = InventoryManager.FilledInventoryAndArmory
+                        .Where(i =>
+                            categories.Contains(i.Item.EquipmentCatagory) &&
+                            i.Item.IsValidForCurrentClass &&
+                            i.Item.RequiredLevel <= Core.Me.ClassLevel &&
+                            i.BagId != InventoryBagId.EquippedItems)
+                        .OrderByDescending(i => i.Item.ItemLevel)
+                        .FirstOrDefault();
+
+                    if (bestItem == null) continue;
+
+                    // Compare with current item
+                    var currentItemLevel = slot.IsFilled ? slot.Item.ItemLevel : 0;
+                    if (bestItem.Item.ItemLevel <= currentItemLevel) continue;
+
+                    // Equip the better item
+                    _controller.Log($"AutoEquip: {bestItem.Name} (iLvl {bestItem.Item.ItemLevel}) -> Slot {slot.Slot}");
+                    bestItem.Move(slot);
+                    await Task.Delay(500, token);
+                    upgraded = true;
+                }
+
+                if (upgraded)
+                {
+                    // Update gearset
+                    _controller.Log("AutoEquip: Saving gearset");
+                    ChatManager.SendChat("/gs save");
+                    await Task.Delay(1000, token);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _controller.Log($"AutoEquip error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Get valid equipment categories for a slot.
+        /// </summary>
+        private List<ItemUiCategory> GetEquipmentCategoriesForSlot(ushort slotId)
+        {
+            return slotId switch
+            {
+                0 => new List<ItemUiCategory> {
+                    // Main hand - depends on class, but for DoH/DoL:
+                    ItemUiCategory.Carpenters_Primary_Tool,
+                    ItemUiCategory.Blacksmiths_Primary_Tool,
+                    ItemUiCategory.Armorers_Primary_Tool,
+                    ItemUiCategory.Goldsmiths_Primary_Tool,
+                    ItemUiCategory.Leatherworkers_Primary_Tool,
+                    ItemUiCategory.Weavers_Primary_Tool,
+                    ItemUiCategory.Alchemists_Primary_Tool,
+                    ItemUiCategory.Culinarians_Primary_Tool,
+                    ItemUiCategory.Miners_Primary_Tool,
+                    ItemUiCategory.Botanists_Primary_Tool,
+                    ItemUiCategory.Fishers_Primary_Tool
+                },
+                1 => new List<ItemUiCategory> {
+                    // Off hand
+                    ItemUiCategory.Carpenters_Secondary_Tool,
+                    ItemUiCategory.Blacksmiths_Secondary_Tool,
+                    ItemUiCategory.Armorers_Secondary_Tool,
+                    ItemUiCategory.Goldsmiths_Secondary_Tool,
+                    ItemUiCategory.Leatherworkers_Secondary_Tool,
+                    ItemUiCategory.Weavers_Secondary_Tool,
+                    ItemUiCategory.Alchemists_Secondary_Tool,
+                    ItemUiCategory.Culinarians_Secondary_Tool
+                },
+                2 => new List<ItemUiCategory> { ItemUiCategory.Head },
+                3 => new List<ItemUiCategory> { ItemUiCategory.Body },
+                4 => new List<ItemUiCategory> { ItemUiCategory.Hands },
+                5 => new List<ItemUiCategory> { ItemUiCategory.Waist },
+                6 => new List<ItemUiCategory> { ItemUiCategory.Legs },
+                7 => new List<ItemUiCategory> { ItemUiCategory.Feet },
+                8 => new List<ItemUiCategory> { ItemUiCategory.Earrings },
+                9 => new List<ItemUiCategory> { ItemUiCategory.Necklace },
+                10 => new List<ItemUiCategory> { ItemUiCategory.Bracelets },
+                11 or 12 => new List<ItemUiCategory> { ItemUiCategory.Ring },
+                13 => new List<ItemUiCategory> { ItemUiCategory.Soul_Crystal },
+                _ => new List<ItemUiCategory>()
+            };
         }
 
         #endregion

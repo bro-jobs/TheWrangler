@@ -24,6 +24,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using ff14bot.Helpers;
 
@@ -164,6 +165,15 @@ namespace TheWrangler
             txtMissingItems.ForeColor = Color.FromArgb(255, 200, 100); // Orange/yellow for warnings
             txtLevelingLog.BackColor = Color.FromArgb(30, 30, 30);
             txtLevelingLog.ForeColor = Color.FromArgb(220, 220, 220);
+
+            // Debug Mode styling
+            tabDebugMode.BackColor = Color.FromArgb(37, 37, 38);
+            lblDebugCommands.ForeColor = Color.FromArgb(200, 200, 200);
+            txtDebugCommand.BackColor = Color.FromArgb(50, 50, 55);
+            txtDebugCommand.ForeColor = Color.FromArgb(220, 220, 220);
+            txtDebugLog.BackColor = Color.FromArgb(30, 30, 30);
+            txtDebugLog.ForeColor = Color.FromArgb(220, 220, 220);
+            StyleButton(btnRunDebugCommand, Color.FromArgb(0, 122, 204), Color.White);
         }
 
         /// <summary>
@@ -510,6 +520,240 @@ namespace TheWrangler
 
         #endregion
 
+        #region Debug Mode Event Handlers
+
+        /// <summary>
+        /// Run debug command button click.
+        /// </summary>
+        private void btnRunDebugCommand_Click(object sender, EventArgs e)
+        {
+            ExecuteDebugCommand(txtDebugCommand.Text.Trim());
+        }
+
+        /// <summary>
+        /// Debug command text box key down - run on Enter.
+        /// </summary>
+        private void txtDebugCommand_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                ExecuteDebugCommand(txtDebugCommand.Text.Trim());
+            }
+        }
+
+        /// <summary>
+        /// Execute a debug command.
+        /// </summary>
+        private void ExecuteDebugCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                LogToDebugUI("Please enter a command.", Color.Orange);
+                return;
+            }
+
+            LogToDebugUI($"> {command}", Color.FromArgb(150, 200, 255));
+
+            var parts = command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var cmd = parts[0].ToLower();
+            var arg = parts.Length > 1 ? parts[1] : "";
+
+            try
+            {
+                switch (cmd)
+                {
+                    case "/test1":
+                        ExecuteTest1_ChangeClass(arg);
+                        break;
+                    case "/test2":
+                        ExecuteTest2_TeleportTo(arg);
+                        break;
+                    case "/test3":
+                        ExecuteTest3_Navigation();
+                        break;
+                    case "/test4":
+                        ExecuteTest4_ListNpcs();
+                        break;
+                    case "/stop":
+                        ExecuteStopMovement();
+                        break;
+                    case "/help":
+                        ShowDebugHelp();
+                        break;
+                    default:
+                        LogToDebugUI($"Unknown command: {cmd}. Type /help for available commands.", Color.Orange);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToDebugUI($"Error: {ex.Message}", Color.FromArgb(255, 100, 100));
+            }
+        }
+
+        /// <summary>
+        /// Test 1: Change class using gearset.
+        /// </summary>
+        private void ExecuteTest1_ChangeClass(string jobName)
+        {
+            if (string.IsNullOrWhiteSpace(jobName))
+            {
+                jobName = "Carpenter";
+            }
+
+            LogToDebugUI($"Test 1: Changing class to {jobName}...", Color.LightGreen);
+
+            if (!Enum.TryParse<ff14bot.Enums.ClassJobType>(jobName.Trim(), true, out var targetJob))
+            {
+                LogToDebugUI($"Unknown job: {jobName}", Color.Orange);
+                return;
+            }
+
+            var currentJob = ff14bot.Core.Me.CurrentJob;
+            LogToDebugUI($"Current job: {currentJob}", Color.White);
+
+            if (currentJob == targetJob)
+            {
+                LogToDebugUI($"Already on {targetJob}!", Color.LightGreen);
+                return;
+            }
+
+            var gearSets = ff14bot.Managers.GearsetManager.GearSets
+                .Where(gs => gs.InUse && gs.Class == targetJob)
+                .ToList();
+
+            if (gearSets.Count == 0)
+            {
+                LogToDebugUI($"No gearset found for {targetJob}", Color.Orange);
+                return;
+            }
+
+            LogToDebugUI($"Found {gearSets.Count} gearset(s) for {targetJob}", Color.White);
+            LogToDebugUI($"Activating gearset {gearSets.First().Index}...", Color.White);
+
+            gearSets.First().Activate();
+
+            LogToDebugUI("Gearset activated. If SelectYesno dialog appears, run /test1 again or manually click Yes.", Color.LightBlue);
+            LogToDebugUI($"Check current job with another /test1 command after dialogs close.", Color.LightBlue);
+        }
+
+        /// <summary>
+        /// Test 2: Teleport to an aetheryte.
+        /// </summary>
+        private void ExecuteTest2_TeleportTo(string aetheryteIdStr)
+        {
+            if (string.IsNullOrWhiteSpace(aetheryteIdStr))
+            {
+                aetheryteIdStr = "8"; // Default: Limsa Lominsa
+            }
+
+            if (!uint.TryParse(aetheryteIdStr, out var aetheryteId))
+            {
+                LogToDebugUI($"Invalid aetheryte ID: {aetheryteIdStr}", Color.Orange);
+                return;
+            }
+
+            LogToDebugUI($"Test 2: Teleporting to aetheryte {aetheryteId}...", Color.LightGreen);
+            LogToDebugUI($"Current zone: {ff14bot.Managers.WorldManager.ZoneId}", Color.White);
+
+            if (!ff14bot.Managers.WorldManager.CanTeleport())
+            {
+                LogToDebugUI("Cannot teleport right now (combat, casting, etc.)", Color.Orange);
+                return;
+            }
+
+            var locations = ff14bot.Managers.WorldManager.AvailableLocations;
+            if (!locations.Any(l => l.AetheryteId == aetheryteId))
+            {
+                LogToDebugUI($"Aetheryte {aetheryteId} is not unlocked", Color.Orange);
+                LogToDebugUI("Common IDs: 2=Gridania, 8=Limsa, 9=Ul'dah", Color.LightBlue);
+                return;
+            }
+
+            ff14bot.Managers.WorldManager.TeleportById(aetheryteId);
+            LogToDebugUI("Teleport initiated! Character should start casting.", Color.LightGreen);
+        }
+
+        /// <summary>
+        /// Test 3: Navigation - move forward.
+        /// </summary>
+        private void ExecuteTest3_Navigation()
+        {
+            LogToDebugUI("Test 3: Starting navigation test...", Color.LightGreen);
+
+            var currentLocation = ff14bot.Core.Me.Location;
+            LogToDebugUI($"Current location: {currentLocation}", Color.White);
+
+            var target = new Clio.Utilities.Vector3(
+                currentLocation.X + 10,
+                currentLocation.Y,
+                currentLocation.Z);
+            LogToDebugUI($"Target: {target}", Color.White);
+
+            ff14bot.Core.Me.Face(target);
+            ff14bot.Managers.MovementManager.MoveForwardStart();
+
+            LogToDebugUI("Moving forward! Use /stop to stop movement.", Color.LightGreen);
+        }
+
+        /// <summary>
+        /// Stop movement.
+        /// </summary>
+        private void ExecuteStopMovement()
+        {
+            LogToDebugUI("Stopping movement...", Color.LightBlue);
+
+            ff14bot.Managers.MovementManager.MoveForwardStop();
+
+            var finalLocation = ff14bot.Core.Me.Location;
+            LogToDebugUI($"Stopped. Final location: {finalLocation}", Color.LightGreen);
+        }
+
+        /// <summary>
+        /// Test 4: List nearby NPCs.
+        /// </summary>
+        private void ExecuteTest4_ListNpcs()
+        {
+            LogToDebugUI("Test 4: Listing nearby NPCs...", Color.LightGreen);
+
+            var npcs = ff14bot.Managers.GameObjectManager.GameObjects
+                .Where(o => o.IsVisible && o.IsTargetable && o.Type == ff14bot.Enums.GameObjectType.EventNpc)
+                .Take(10)
+                .ToList();
+
+            if (npcs.Count == 0)
+            {
+                LogToDebugUI("No NPCs found nearby.", Color.Orange);
+                return;
+            }
+
+            LogToDebugUI($"Found {npcs.Count} NPC(s):", Color.White);
+            foreach (var npc in npcs)
+            {
+                LogToDebugUI($"  {npc.Name} (ID: {npc.NpcId}) - Distance: {npc.Distance():F1}", Color.FromArgb(180, 220, 180));
+            }
+        }
+
+        /// <summary>
+        /// Show debug help.
+        /// </summary>
+        private void ShowDebugHelp()
+        {
+            LogToDebugUI("Available commands:", Color.LightGreen);
+            LogToDebugUI("  /test1 [job]  - Change class (e.g. /test1 Carpenter)", Color.White);
+            LogToDebugUI("  /test2 [id]   - Teleport to aetheryte (e.g. /test2 8)", Color.White);
+            LogToDebugUI("  /test3        - Start navigation (move forward)", Color.White);
+            LogToDebugUI("  /test4        - List nearby NPCs", Color.White);
+            LogToDebugUI("  /stop         - Stop movement", Color.White);
+            LogToDebugUI("  /help         - Show this help", Color.White);
+            LogToDebugUI("", Color.White);
+            LogToDebugUI("Common Aetheryte IDs:", Color.LightBlue);
+            LogToDebugUI("  2=Gridania, 8=Limsa Lominsa, 9=Ul'dah", Color.White);
+        }
+
+        #endregion
+
         #region Form Event Handlers
 
         /// <summary>
@@ -685,6 +929,32 @@ namespace TheWrangler
         public void LogToLevelingUI(string message)
         {
             LogToLevelingUI(message, Color.FromArgb(220, 220, 220));
+        }
+
+        /// <summary>
+        /// Appends a message to the Debug Mode log area.
+        /// Thread-safe.
+        /// </summary>
+        public void LogToDebugUI(string message, Color color)
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => LogToDebugUI(message, color)));
+                return;
+            }
+
+            txtDebugLog.SelectionStart = txtDebugLog.TextLength;
+            txtDebugLog.SelectionColor = color;
+            txtDebugLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+            txtDebugLog.ScrollToCaret();
+        }
+
+        /// <summary>
+        /// Public method to log to debug with default color.
+        /// </summary>
+        public void LogToDebugUI(string message)
+        {
+            LogToDebugUI(message, Color.FromArgb(220, 220, 220));
         }
 
         /// <summary>
