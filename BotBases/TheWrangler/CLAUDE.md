@@ -153,30 +153,26 @@ This handles everything: NavigationProvider init, teleportation, NavGraph, Fligh
 
 ## Leveling Mode Architecture
 
-The Leveling Mode uses these key classes:
+The Leveling Mode uses pure C# code (no XML profiles):
 
-- **LevelingController** (`Leveling/LevelingController.cs`) - Orchestrates leveling process
-- **ProfileExecutor** (`Leveling/ProfileExecutor.cs`) - Contains behavior handlers
+- **LevelingController** (`Leveling/LevelingController.cs`) - Coordinates between UI and LevelingSequence
+- **LevelingSequence** (`Leveling/LevelingSequence.cs`) - Main leveling execution loop
+- **LevelingData** (`Leveling/LevelingData.cs`) - Contains all grind items, class quests, and level breakpoints
+- **ClassUnlockData** (`Leveling/ClassUnlockData.cs`) - DoH/DoL class unlock quest data
 
-### Public Methods in ProfileExecutor
-These can be called directly for C#-based leveling logic:
+### Key Classes
 
-```csharp
-// Navigation
-await NavigateToLocationAsync(zoneId, location, token);
-await MoveToLocationAsync(location, token, tolerance);
+**LevelingData.cs** - Static data for leveling:
+- `GrindItems` - Dictionary mapping class to level ranges and items to craft
+- `ClassQuests` - Dictionary mapping class to class quest info
+- `GetGrindOrder(job, level)` - Returns Lisbeth order for current level
+- `GetNextQuest(job, level)` - Returns next available class quest
 
-// Class switching
-await ChangeClassAsync("Carpenter", force: false, token);
-
-// NPC interaction
-await TalkToNpcAsync(npcId, xyzHint, selectSlot, token);
-await PickupQuestAsync(questId, npcId, xyzHint, token);
-await TurnInQuestAsync(questId, npcId, xyzHint, rewardSlot, token);
-
-// Gear management
-await AutoEquipBestGearAsync(token);
-```
+**LevelingSequence.cs** - Execution logic:
+- `UnlockAllClassesAsync()` - Unlocks locked DoH/DoL classes
+- `LevelGatherersTo21Async()` - Level MIN/BTN to 21 first
+- `LevelCraftersTo21Async()` - Level all crafters to 21
+- `LevelTo100Async()` - Higher level content (Ishgard, etc.)
 
 ## DoH/DoL Class Unlock Quest Data
 
