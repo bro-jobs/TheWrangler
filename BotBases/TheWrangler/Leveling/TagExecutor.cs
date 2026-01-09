@@ -225,6 +225,7 @@ namespace TheWrangler.Leveling
                 await Coroutine.Yield();
 
                 var tickCount = 0;
+                var lastLogTime = DateTime.Now;
                 while (!behavior.IsDone && DateTime.Now < timeout)
                 {
                     if (token.IsCancellationRequested)
@@ -236,6 +237,13 @@ namespace TheWrangler.Leveling
                     var status = composite.Tick(context);
                     tickCount++;
 
+                    // Log every 5 seconds to show progress
+                    if ((DateTime.Now - lastLogTime).TotalSeconds >= 5)
+                    {
+                        Logging.Write($"[TagExecutor] Still running: {tickCount} ticks, status={status}, IsDone={behavior.IsDone}");
+                        lastLogTime = DateTime.Now;
+                    }
+
                     // Only break on Failure - Success means one action completed but behavior may need more ticks
                     if (status == RunStatus.Failure)
                     {
@@ -244,6 +252,11 @@ namespace TheWrangler.Leveling
                     }
 
                     await Coroutine.Yield();
+                }
+
+                if (DateTime.Now >= timeout)
+                {
+                    Logging.Write($"[TagExecutor] Timeout after {tickCount} ticks, IsDone={behavior.IsDone}");
                 }
 
                 composite.Stop(context);
