@@ -20,6 +20,7 @@ using Buddy.Coroutines;
 using ff14bot;
 using ff14bot.Enums;
 using ff14bot.Managers;
+using ff14bot.RemoteWindows;
 using TheWrangler.Leveling.QuestInteractions;
 
 namespace TheWrangler.Leveling
@@ -355,7 +356,14 @@ namespace TheWrangler.Leveling
 
             _controller.Log($"Changing to {job}...");
             ChatManager.SendChat($"/gearset change {LevelingData.GetLisbethTypeName(job)}");
-            await Coroutine.Wait(5000, () => Core.Me.CurrentJob == job);
+
+            // Handle the confirmation dialog that may appear
+            await Coroutine.Wait(3000, () => SelectYesno.IsOpen || Core.Me.CurrentJob == job);
+            if (SelectYesno.IsOpen)
+            {
+                SelectYesno.Yes();
+                await Coroutine.Wait(5000, () => Core.Me.CurrentJob == job);
+            }
 
             return Core.Me.CurrentJob == job;
         }
