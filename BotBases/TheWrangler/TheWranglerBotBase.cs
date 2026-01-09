@@ -183,12 +183,6 @@ namespace TheWrangler
                 ExecuteDebugCommand(debugCmd);
             }
 
-            // Check for pending stop gently request (process on bot thread)
-            if (_controller.PendingStopGently)
-            {
-                await _controller.ExecuteStopGentlyAsync();
-            }
-
             // Check if there's a pending order to execute
             if (_controller.HasPendingOrder)
             {
@@ -213,6 +207,8 @@ namespace TheWrangler
         /// <summary>
         /// Executes the pending order by awaiting Lisbeth directly.
         /// The await handles all coroutine integration automatically.
+        /// Includes retry logic for CoroutineStoppedException which can occur
+        /// when resuming after a forced stop (Lisbeth's internal state is corrupted).
         /// </summary>
         private async Task ExecuteOrderAsync()
         {
@@ -221,29 +217,51 @@ namespace TheWrangler
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome) = _controller.GetPendingOrderData();
 
-            try
-            {
-                // Await Lisbeth directly - this is the key!
-                // Lisbeth's ExecuteOrders is coroutine-compatible.
-                Log("DEBUG: About to call ExecuteOrdersAsync...");
-                bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
-                Log($"DEBUG: ExecuteOrdersAsync returned: {result}");
+            // Retry once for CoroutineStoppedException - this can happen when
+            // Lisbeth's internal state is corrupted from a previous forced stop
+            const int maxRetries = 1;
+            int attempt = 0;
 
-                _controller.OnOrderExecutionComplete(result);
-            }
-            catch (Exception ex)
+            while (attempt <= maxRetries)
             {
-                // Log full exception details for debugging
-                Log($"Error executing order: {ex.Message}");
-                Log($"Exception type: {ex.GetType().FullName}");
-                Log($"Stack trace: {ex.StackTrace}");
-                if (ex.InnerException != null)
+                try
                 {
-                    Log($"Inner exception: {ex.InnerException.Message}");
-                    Log($"Inner stack trace: {ex.InnerException.StackTrace}");
+                    // Await Lisbeth directly - this is the key!
+                    // Lisbeth's ExecuteOrders is coroutine-compatible.
+                    if (attempt > 0)
+                    {
+                        Log($"Retry attempt {attempt}...");
+                        // Small delay before retry to let Lisbeth clean up
+                        await Coroutine.Sleep(500);
+                    }
+
+                    bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+
+                    _controller.OnOrderExecutionComplete(result);
+                    return; // Success - exit the retry loop
                 }
-                Logging.WriteException(ex);
-                _controller.OnOrderExecutionError(ex.Message);
+                catch (Exception ex) when (ex.GetType().Name == "CoroutineStoppedException" && attempt < maxRetries)
+                {
+                    // This can happen when Lisbeth's internal state is corrupted
+                    // from a previous forced stop. Retry once.
+                    Log($"CoroutineStoppedException on attempt {attempt + 1}, will retry...");
+                    attempt++;
+                }
+                catch (Exception ex)
+                {
+                    // Log full exception details for debugging
+                    Log($"Error executing order: {ex.Message}");
+                    Log($"Exception type: {ex.GetType().FullName}");
+                    Log($"Stack trace: {ex.StackTrace}");
+                    if (ex.InnerException != null)
+                    {
+                        Log($"Inner exception: {ex.InnerException.Message}");
+                        Log($"Inner stack trace: {ex.InnerException.StackTrace}");
+                    }
+                    Logging.WriteException(ex);
+                    _controller.OnOrderExecutionError(ex.Message);
+                    return; // Exit on non-retryable error
+                }
             }
         }
 
