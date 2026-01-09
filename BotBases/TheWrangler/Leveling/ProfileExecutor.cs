@@ -757,7 +757,7 @@ namespace TheWrangler
             try
             {
                 // Use the existing LisbethApi to execute
-                var result = await LisbethApi.ExecuteOrdersAsync(json, WranglerSettings.Instance.IgnoreHome);
+                var result = await _controller.LisbethApi.ExecuteOrdersAsync(json, WranglerSettings.Instance.IgnoreHome);
 
                 if (!result)
                 {
@@ -1212,7 +1212,7 @@ namespace TheWrangler
         {
             // Map job to weapon category
             var weaponCategory = GetWeaponCategoryForJob(targetJob);
-            if (weaponCategory == ItemUiCategory.Unknown)
+            if (weaponCategory == null)
             {
                 _controller.Log($"ChangeClass: Unknown weapon category for {targetJob}");
                 return false;
@@ -1220,7 +1220,7 @@ namespace TheWrangler
 
             // Find a weapon for this class in inventory/armory
             var weapon = InventoryManager.FilledInventoryAndArmory
-                .Where(i => i.Item.EquipmentCatagory == weaponCategory)
+                .Where(i => i.Item.EquipmentCatagory == weaponCategory.Value)
                 .OrderByDescending(i => i.Item.ItemLevel)
                 .FirstOrDefault();
 
@@ -1249,7 +1249,7 @@ namespace TheWrangler
         /// <summary>
         /// Get the weapon category for a job.
         /// </summary>
-        private ItemUiCategory GetWeaponCategoryForJob(ClassJobType job)
+        private ItemUiCategory? GetWeaponCategoryForJob(ClassJobType job)
         {
             return job switch
             {
@@ -1264,7 +1264,7 @@ namespace TheWrangler
                 ClassJobType.Miner => ItemUiCategory.Miners_Primary_Tool,
                 ClassJobType.Botanist => ItemUiCategory.Botanists_Primary_Tool,
                 ClassJobType.Fisher => ItemUiCategory.Fishers_Primary_Tool,
-                _ => ItemUiCategory.Unknown
+                _ => null
             };
         }
 
