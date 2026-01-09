@@ -41,6 +41,7 @@ using ff14bot.AClasses;
 using ff14bot.Behavior;
 using ff14bot.Helpers;
 using TreeSharp;
+using TheWrangler.Leveling;
 
 namespace TheWrangler
 {
@@ -245,6 +246,7 @@ namespace TheWrangler
                 var result = cmd.Command.ToLower() switch
                 {
                     "/test4" => ExecuteDebugTest4_ListNpcs(),
+                    "/unlock" => ExecuteDebugUnlock_CheckStatus(),
                     _ => $"Unknown bot-thread command: {cmd.Command}"
                 };
 
@@ -301,6 +303,52 @@ namespace TheWrangler
                 {
                     results.AppendLine($"  {npc.Name} (ID: {npc.NpcId}, Type: {npc.Type}) - Distance: {npc.Distance():F1}");
                 }
+            }
+
+            return results.ToString();
+        }
+
+        /// <summary>
+        /// Check DoH/DoL class unlock status (runs on bot thread for memory access).
+        /// Uses both Core.Me.Levels and QuestLogManager.IsQuestCompleted.
+        /// </summary>
+        private string ExecuteDebugUnlock_CheckStatus()
+        {
+            var results = new System.Text.StringBuilder();
+
+            if (Core.Me == null)
+            {
+                return "Character not loaded.";
+            }
+
+            results.AppendLine($"Character: {Core.Me.Name}");
+            results.AppendLine();
+            results.AppendLine("=== DoH (Crafters) ===");
+
+            // Check all DoH/DoL classes
+            foreach (var job in Leveling.ClassUnlockData.AllDohDolClasses)
+            {
+                // Check if class is unlocked via level
+                var level = Core.Me.Levels[job];
+                var isUnlockedByLevel = level > 0;
+
+                // Get unlock quest info
+                var unlockInfo = Leveling.ClassUnlockData.UnlockInfo.GetValueOrDefault(job);
+                var isUnlockedByQuest = unlockInfo != null &&
+                    ff14bot.Managers.QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId);
+
+                var status = isUnlockedByLevel ? $"Lv{level}" : (isUnlockedByQuest ? "Quest Done (no level?)" : "LOCKED");
+                var questStatus = unlockInfo != null ?
+                    $"Quest {unlockInfo.UnlockQuestId}: {(ff14bot.Managers.QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId) ? "Complete" : "Incomplete")}" : "N/A";
+
+                // Insert separator between DoH and DoL
+                if (job == ff14bot.Enums.ClassJobType.Miner && results.ToString().Contains("Culinarian"))
+                {
+                    results.AppendLine();
+                    results.AppendLine("=== DoL (Gatherers) ===");
+                }
+
+                results.AppendLine($"{job}: {status} | {questStatus}");
             }
 
             return results.ToString();

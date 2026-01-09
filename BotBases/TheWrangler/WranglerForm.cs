@@ -579,6 +579,9 @@ namespace TheWrangler
                     case "/test4":
                         ExecuteTest4_ListNpcs();
                         break;
+                    case "/unlock":
+                        ExecuteUnlockStatus();
+                        break;
                     case "/stop":
                         ExecuteStopMovement();
                         break;
@@ -778,6 +781,37 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Show DoH/DoL class unlock status.
+        /// Queues command to run on bot thread for proper memory access.
+        /// </summary>
+        private void ExecuteUnlockStatus()
+        {
+            LogToDebugUI("Checking DoH/DoL class unlock status (queuing to bot thread)...", Color.LightGreen);
+
+            // Check if bot is running
+            if (!TheWranglerBotBase.IsBotRunning)
+            {
+                LogToDebugUI("Bot is not running. Start the bot first to use /unlock.", Color.Orange);
+                LogToDebugUI("(Memory reads require the bot thread to be active)", Color.LightBlue);
+                return;
+            }
+
+            // Queue command to run on bot thread
+            _controller.QueueDebugCommand("/unlock", "", result =>
+            {
+                // This callback is called from bot thread, so we need to marshal to UI
+                LogToDebugUI("DoH/DoL Class Unlock Status:", Color.LightGreen);
+                foreach (var line in result.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var color = line.Contains("LOCKED") ? Color.FromArgb(255, 150, 100) : Color.FromArgb(150, 220, 150);
+                    LogToDebugUI($"  {line}", color);
+                }
+            });
+
+            LogToDebugUI("Command queued. Results will appear shortly...", Color.LightBlue);
+        }
+
+        /// <summary>
         /// Show debug help.
         /// </summary>
         private void ShowDebugHelp()
@@ -787,13 +821,14 @@ namespace TheWrangler
             LogToDebugUI("  /test2 [id]   - Teleport to aetheryte (e.g. /test2 8)", Color.White);
             LogToDebugUI("  /test3        - Start navigation (move forward)", Color.White);
             LogToDebugUI("  /test4        - List nearby NPCs (requires bot running)", Color.White);
+            LogToDebugUI("  /unlock       - Show DoH/DoL unlock status (requires bot running)", Color.White);
             LogToDebugUI("  /stop         - Stop movement", Color.White);
             LogToDebugUI("  /help         - Show this help", Color.White);
             LogToDebugUI("", Color.White);
             LogToDebugUI("Common Aetheryte IDs:", Color.LightBlue);
             LogToDebugUI("  2=Gridania, 8=Limsa Lominsa, 9=Ul'dah", Color.White);
             LogToDebugUI("", Color.White);
-            LogToDebugUI("Note: /test4 requires bot to be started (Start button) for memory access.", Color.LightBlue);
+            LogToDebugUI("Note: /test4, /unlock require bot to be started for memory access.", Color.LightBlue);
         }
 
         #endregion
