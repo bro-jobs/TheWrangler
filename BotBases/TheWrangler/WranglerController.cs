@@ -329,7 +329,7 @@ namespace TheWrangler
         /// </summary>
         public void SyncStateWithBot()
         {
-            if (!ff14bot.Behavior.TreeRoot.IsRunning)
+            if (!TheWranglerBotBase.IsBotRunning)
             {
                 if (IsExecuting || HasPendingOrder)
                 {
