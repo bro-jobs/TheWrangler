@@ -339,7 +339,7 @@ namespace TheWrangler
                 var isUnlockedByLevel = level > 0;
 
                 // Get unlock quest info
-                var unlockInfo = Leveling.ClassUnlockData.UnlockInfo.GetValueOrDefault(job);
+                Leveling.ClassUnlockData.UnlockInfo.TryGetValue(job, out var unlockInfo);
                 var isUnlockedByQuest = unlockInfo != null &&
                     ff14bot.Managers.QuestLogManager.IsQuestCompleted(unlockInfo.UnlockQuestId);
 
