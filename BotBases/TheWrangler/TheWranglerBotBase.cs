@@ -188,6 +188,12 @@ namespace TheWrangler
             {
                 await ExecuteOrderAsync();
             }
+            // Check if leveling mode is pending start
+            else if (_controller.LevelingController.IsPendingStart)
+            {
+                Log("Starting leveling mode execution...");
+                await _controller.LevelingController.ExecuteLevelingAsync();
+            }
             else
             {
                 // Idle - yield to the coroutine system

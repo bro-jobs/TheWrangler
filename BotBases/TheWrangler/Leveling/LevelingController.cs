@@ -105,6 +105,16 @@ namespace TheWrangler
         /// </summary>
         public string CurrentDetail => _currentDetail;
 
+        /// <summary>
+        /// Returns true if leveling has been started and is pending execution by the behavior tree.
+        /// </summary>
+        public bool IsPendingStart { get; private set; }
+
+        /// <summary>
+        /// Gets the ProfileExecutor for direct access from behavior tree.
+        /// </summary>
+        public ProfileExecutor Executor => _executor;
+
         #endregion
 
         #region Events
@@ -148,26 +158,45 @@ namespace TheWrangler
 
         /// <summary>
         /// Starts the leveling process.
+        /// Sets IsPendingStart=true so the behavior tree can pick it up and run it in coroutine context.
         /// </summary>
         public void StartLeveling()
         {
-            if (_isRunning)
+            if (_isRunning || IsPendingStart)
             {
-                Log("Leveling is already running.");
+                Log("Leveling is already running or pending.");
                 return;
             }
 
-            _isRunning = true;
             _cts = new CancellationTokenSource();
 
             // Refresh class levels immediately
             RefreshClassLevels();
 
             // Set initial directive
-            SetDirective("Initializing", "Loading profiles and checking requirements...");
+            SetDirective("Initializing", "Waiting for behavior tree to start leveling...");
 
-            // Start the leveling task
-            Task.Run(() => RunLevelingLoopAsync(_cts.Token));
+            // Set pending flag - the behavior tree will pick this up and run leveling in coroutine context
+            IsPendingStart = true;
+            Log("Leveling queued. Waiting for behavior tree to start execution...");
+        }
+
+        /// <summary>
+        /// Called by the behavior tree to execute the leveling loop.
+        /// MUST be called from within ActionRunCoroutine context for Navigation.GetTo to work.
+        /// </summary>
+        public async Task ExecuteLevelingAsync()
+        {
+            if (!IsPendingStart)
+            {
+                return;
+            }
+
+            IsPendingStart = false;
+            _isRunning = true;
+
+            Log("Behavior tree starting leveling execution...");
+            await RunLevelingLoopAsync(_cts?.Token ?? CancellationToken.None);
         }
 
         /// <summary>
@@ -175,6 +204,15 @@ namespace TheWrangler
         /// </summary>
         public void StopLeveling()
         {
+            // Handle case where leveling is pending but not yet started
+            if (IsPendingStart)
+            {
+                Log("Cancelling pending leveling start.");
+                IsPendingStart = false;
+                _cts?.Cancel();
+                return;
+            }
+
             if (!_isRunning)
             {
                 Log("Leveling is not running.");

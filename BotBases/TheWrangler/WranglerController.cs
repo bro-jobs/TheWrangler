@@ -43,6 +43,7 @@ namespace TheWrangler
         #region Fields
 
         private readonly LisbethApi _lisbethApi;
+        private readonly LevelingController _levelingController;
         private readonly ConcurrentQueue<DebugCommand> _debugCommandQueue = new ConcurrentQueue<DebugCommand>();
 
         #endregion
@@ -99,6 +100,11 @@ namespace TheWrangler
         public LisbethApi LisbethApi => _lisbethApi;
 
         /// <summary>
+        /// Get the LevelingController for leveling mode operations.
+        /// </summary>
+        public LevelingController LevelingController => _levelingController;
+
+        /// <summary>
         /// Returns true if there are pending debug commands.
         /// </summary>
         public bool HasPendingDebugCommand => !_debugCommandQueue.IsEmpty;
@@ -113,6 +119,7 @@ namespace TheWrangler
         public WranglerController()
         {
             _lisbethApi = new LisbethApi();
+            _levelingController = new LevelingController();
         }
 
         #endregion

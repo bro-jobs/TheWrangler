@@ -38,7 +38,6 @@ namespace TheWrangler
         #region Fields
 
         private readonly WranglerController _controller;
-        private readonly LevelingController _levelingController;
 
         #endregion
 
@@ -65,7 +64,6 @@ namespace TheWrangler
         public WranglerForm(WranglerController controller)
         {
             _controller = controller;
-            _levelingController = new LevelingController();
             Instance = this;
 
             InitializeComponent();
@@ -92,10 +90,10 @@ namespace TheWrangler
             _controller.OrderCompleted += OnOrderCompleted;
 
             // Set up Leveling Mode event handlers
-            _levelingController.DirectiveChanged += OnDirectiveChanged;
-            _levelingController.LogMessage += OnLevelingLogMessage;
-            _levelingController.LevelingCompleted += OnLevelingCompleted;
-            _levelingController.ClassLevelsUpdated += OnClassLevelsUpdated;
+            _controller.LevelingController.DirectiveChanged += OnDirectiveChanged;
+            _controller.LevelingController.LogMessage += OnLevelingLogMessage;
+            _controller.LevelingController.LevelingCompleted += OnLevelingCompleted;
+            _controller.LevelingController.ClassLevelsUpdated += OnClassLevelsUpdated;
 
             // Set form properties
             this.Text = "TheWrangler - Lisbeth Order Runner";
@@ -408,9 +406,9 @@ namespace TheWrangler
         /// </summary>
         private void btnStartLeveling_Click(object sender, EventArgs e)
         {
-            if (_levelingController.IsRunning)
+            if (_controller.LevelingController.IsRunning || _controller.LevelingController.IsPendingStart)
             {
-                LogToLevelingUI("Leveling is already running.", Color.Orange);
+                LogToLevelingUI("Leveling is already running or pending.", Color.Orange);
                 return;
             }
 
@@ -421,12 +419,12 @@ namespace TheWrangler
 
             // Check for missing items first
             LogToLevelingUI("Checking for required items...", Color.LightBlue);
-            var missingItems = _levelingController.CheckRequiredItems();
+            var missingItems = _controller.LevelingController.CheckRequiredItems();
             UpdateMissingItemsDisplay(missingItems);
 
             // Start the leveling process
             LogToLevelingUI("Starting DoH/DoL leveling...", Color.LightGreen);
-            _levelingController.StartLeveling();
+            _controller.LevelingController.StartLeveling();
 
             // Auto-start the bot if it's not running
             if (!TheWranglerBotBase.IsBotRunning)
@@ -441,7 +439,7 @@ namespace TheWrangler
         /// </summary>
         private void btnStopLeveling_Click(object sender, EventArgs e)
         {
-            if (!_levelingController.IsRunning)
+            if (!_controller.LevelingController.IsRunning && !_controller.LevelingController.IsPendingStart)
             {
                 LogToLevelingUI("Leveling is not running.", Color.Orange);
                 return;
@@ -451,7 +449,7 @@ namespace TheWrangler
             btnStopLeveling.Enabled = false;
             btnStopLeveling.Text = "Stopping...";
 
-            _levelingController.StopLeveling();
+            _controller.LevelingController.StopLeveling();
         }
 
         /// <summary>
@@ -851,10 +849,10 @@ namespace TheWrangler
             _controller.OrderCompleted -= OnOrderCompleted;
 
             // Cleanup Leveling Mode
-            _levelingController.DirectiveChanged -= OnDirectiveChanged;
-            _levelingController.LogMessage -= OnLevelingLogMessage;
-            _levelingController.LevelingCompleted -= OnLevelingCompleted;
-            _levelingController.ClassLevelsUpdated -= OnClassLevelsUpdated;
+            _controller.LevelingController.DirectiveChanged -= OnDirectiveChanged;
+            _controller.LevelingController.LogMessage -= OnLevelingLogMessage;
+            _controller.LevelingController.LevelingCompleted -= OnLevelingCompleted;
+            _controller.LevelingController.ClassLevelsUpdated -= OnClassLevelsUpdated;
 
             Instance = null;
         }
@@ -892,10 +890,11 @@ namespace TheWrangler
                 btnStopGently.Text = "Stop Gently";
             }
 
-            // Leveling Mode
-            btnStartLeveling.Enabled = !_levelingController.IsRunning;
-            btnStopLeveling.Enabled = _levelingController.IsRunning;
-            if (!_levelingController.IsRunning)
+            // Leveling Mode - also check IsPendingStart (waiting for behavior tree)
+            var levelingActive = _controller.LevelingController.IsRunning || _controller.LevelingController.IsPendingStart;
+            btnStartLeveling.Enabled = !levelingActive;
+            btnStopLeveling.Enabled = levelingActive;
+            if (!levelingActive)
             {
                 btnStopLeveling.Text = "Stop";
             }
@@ -1041,7 +1040,7 @@ namespace TheWrangler
         /// </summary>
         public void RefreshClassLevels()
         {
-            _levelingController.RefreshClassLevels();
+            _controller.LevelingController.RefreshClassLevels();
         }
 
         #endregion
