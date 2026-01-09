@@ -72,6 +72,9 @@ namespace TheWrangler
             SetupForm();
             LoadSettings();
             UpdateUIState();
+
+            // Initialize class levels display
+            RefreshClassLevels();
         }
 
         #endregion
@@ -751,29 +754,41 @@ namespace TheWrangler
         {
             LogToDebugUI("Test 4: Listing nearby NPCs...", Color.LightGreen);
 
-            // Get all game objects first to see what's available
-            var allObjects = ff14bot.Managers.GameObjectManager.GameObjects.ToList();
-            LogToDebugUI($"Total game objects: {allObjects.Count}", Color.White);
+            // Check if game is attached
+            if (ff14bot.Core.Me == null)
+            {
+                LogToDebugUI("Character not loaded. Make sure FFXIV is running and you're logged in.", Color.Orange);
+                return;
+            }
 
-            // Find NPCs - include EventNpc and also check for NpcId > 0
-            var npcs = allObjects
+            LogToDebugUI($"Character: {ff14bot.Core.Me.Name}, Location: {ff14bot.Core.Me.Location}", Color.White);
+
+            // Get all game objects - need to use GetObjectsOfType for proper enumeration
+            var npcs = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
                 .Where(o => o.IsVisible &&
                            (o.Type == ff14bot.Enums.GameObjectType.EventNpc ||
                             o.Type == ff14bot.Enums.GameObjectType.BattleNpc ||
-                            (o.NpcId > 0 && o.NpcId < 100000))) // NPCs typically have NpcId in a certain range
+                            o.NpcId > 0))
                 .OrderBy(o => o.Distance())
                 .Take(10)
                 .ToList();
 
             if (npcs.Count == 0)
             {
-                // Show what types ARE visible for debugging
-                var visibleTypes = allObjects
+                // Try to get any visible objects for debugging
+                var allVisible = ff14bot.Managers.GameObjectManager.GetObjectsOfType<ff14bot.Objects.GameObject>()
                     .Where(o => o.IsVisible)
-                    .GroupBy(o => o.Type)
-                    .Select(g => $"{g.Key}: {g.Count()}")
                     .ToList();
-                LogToDebugUI($"No NPCs found. Visible object types: {string.Join(", ", visibleTypes)}", Color.Orange);
+
+                if (allVisible.Count == 0)
+                {
+                    LogToDebugUI("No visible game objects found. This may be a threading issue - try using RebornConsole instead.", Color.Orange);
+                }
+                else
+                {
+                    var types = allVisible.GroupBy(o => o.Type).Select(g => $"{g.Key}: {g.Count()}");
+                    LogToDebugUI($"No NPCs, but found {allVisible.Count} objects: {string.Join(", ", types)}", Color.Orange);
+                }
                 return;
             }
 
