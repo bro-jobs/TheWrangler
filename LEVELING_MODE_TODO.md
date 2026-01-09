@@ -4,12 +4,13 @@ This document tracks the implementation status of Leveling Mode and provides con
 
 ## Overview
 
-Leveling Mode is a custom profile interpreter that executes the DoH-DoL-Profiles directly via TheWrangler, bypassing RebornBuddy's OrderBot profile system. This provides:
+Leveling Mode automates DoH/DoL class leveling using pure C# code. No XML profile parsing is needed - all leveling logic is defined directly in C# classes.
 
-1. **Greater Control** - Dynamic item quantity calculation, better error handling
+Key features:
+1. **Pure C# Implementation** - All leveling data and logic in C#
 2. **Better UI** - Real-time status display showing exactly what's happening
-3. **Error Recovery** - Ability to retry failed operations (e.g., Lisbeth Max Sessions)
-4. **Direct Lisbeth Integration** - Call Lisbeth API directly without profile overhead
+3. **Error Recovery** - Ability to retry failed operations
+4. **Direct Lisbeth Integration** - Call Lisbeth API directly
 
 ## Architecture
 
@@ -20,18 +21,21 @@ WranglerForm (UI)
 LevelingController (Orchestration)
     |
     v
-ProfileExecutor (XML Parsing & Execution)
+LevelingSequence (Execution)
     |
+    +---> LevelingData (Grind items, quests by level)
+    +---> ClassUnlockData (Class unlock quest info)
+    +---> LlamaLibrary (Navigation, NPC interaction)
     +---> LisbethApi (Crafting/Gathering)
-    +---> ff14bot APIs (Navigation, Quests, etc.)
 ```
 
 ### Key Files
 
 - `BotBases/TheWrangler/WranglerForm.cs` - UI with tabbed interface
-- `BotBases/TheWrangler/Leveling/LevelingController.cs` - Main controller
-- `BotBases/TheWrangler/Leveling/ProfileExecutor.cs` - XML parser and executor
-- `Profiles/DoH-DoL-Profiles/DoH-DoL Leveling/Start.xml` - Main profile
+- `BotBases/TheWrangler/Leveling/LevelingController.cs` - Main controller, coordinates UI and sequence
+- `BotBases/TheWrangler/Leveling/LevelingSequence.cs` - Main execution loop
+- `BotBases/TheWrangler/Leveling/LevelingData.cs` - Grind items and class quests data
+- `BotBases/TheWrangler/Leveling/ClassUnlockData.cs` - Class unlock quest data
 
 ## Implementation Status
 
@@ -40,62 +44,42 @@ ProfileExecutor (XML Parsing & Execution)
 - [x] Tabbed UI with Order Mode and Leveling Mode
 - [x] Class levels display (CRP, BSM, ARM, GSM, LTW, WVR, ALC, CUL, MIN, BTN, FSH)
 - [x] Current directive display with detail
-- [x] Missing items checker (parses GrindMats.txt)
-- [x] Profile XML parser with entity preprocessing
-- [x] Condition evaluator (If/While with complex expressions)
-- [x] Basic behavior handlers (stubs for most tags)
+- [x] Pure C# leveling architecture (no XML parsing)
+- [x] Class unlock sequence for all DoH/DoL classes
+- [x] LevelingData structure for grind items and class quests
+- [x] LevelingSequence for execution
 
-### Behavior Handlers - Implementation Status
+### Leveling Sequence Steps
 
-| Tag | Status | Notes |
-|-----|--------|-------|
-| `If` | Implemented | Full condition evaluation |
-| `While` | Implemented | With iteration safety limit |
-| `Lisbeth` | Partial | Calls LisbethApi, needs error handling |
-| `GetTo` | Stub | TODO: Implement navigation |
-| `TeleportTo` | Stub | TODO: Implement teleportation |
-| `ChangeClass` | Stub | TODO: Implement class switching |
-| `WaitTimer` | Implemented | Working |
-| `LLoadProfile` | Implemented | Loads and executes sub-profiles |
-| `LLTalkTo` | Stub | TODO: Implement NPC interaction |
-| `LLSmallTalk` | Implemented | Simple wait |
-| `LLPickupQuest` | Stub | TODO: Implement quest pickup |
-| `LLTurnIn` | Stub | TODO: Implement quest turn-in |
-| `LogMessage` | Implemented | Working |
-| `RunCode` | Stub | CodeChunks cannot be directly executed |
-| `AutoInventoryEquip` | Stub | TODO: Implement auto-equip |
+| Step | Status | Notes |
+|------|--------|-------|
+| 1. Unlock Classes | Implemented | Uses ClassUnlockData, LlamaLibrary navigation |
+| 2. Level Gatherers to 21 | Implemented | MIN/BTN using LevelClassTo |
+| 3. Level Crafters to 21 | Implemented | All DoH classes via Lisbeth |
+| 4. Level to 100 | TODO | Ishgard Diadem, higher level content |
 
-### Condition Functions - Implementation Status
+### Data Population Status
 
-| Function | Status | Notes |
-|----------|--------|-------|
-| `IsQuestCompleted(id)` | Implemented | Uses QuestLogManager |
-| `HasQuest(id)` | Implemented | Uses QuestLogManager |
-| `HasItem(id)` | Implemented | Uses InventoryManager |
-| `HqHasAtLeast(id, count)` | Implemented | Checks HQ items |
-| `NqHasAtLeast(id, count)` | Implemented | Checks NQ items |
-| `IsQuestAcceptQualified(id)` | Partial | Basic check only |
-| `GetQuestStep(id)` | Implemented | Uses QuestLogManager |
-| `Core.Me.Levels[ClassJobType.X]` | Implemented | Level comparisons |
-| `Core.Player.ClassLevel` | Implemented | Current class level |
-| `ClassName == ClassJobType.X` | Implemented | Class comparison |
+| Class | GrindItems | ClassQuests |
+|-------|------------|-------------|
+| Carpenter | Sample data | Sample data |
+| Blacksmith | TODO | TODO |
+| Armorer | TODO | TODO |
+| Goldsmith | TODO | TODO |
+| Leatherworker | TODO | TODO |
+| Weaver | TODO | TODO |
+| Alchemist | TODO | TODO |
+| Culinarian | TODO | TODO |
+| Miner | TODO | TODO |
+| Botanist | TODO | TODO |
 
 ## Known Issues
 
-### 1. CodeChunks Don't Execute
-The profile contains C# code in `<CodeChunk>` elements that cannot be directly executed at runtime. This includes:
+### 1. Max Sessions Error
+When Lisbeth hits "Max Sessions reached", need error handling and retry.
 
-- `SetLisbethJson*` - Dynamically builds Lisbeth JSON orders
-- `RestartLisbeth` - Attempts to restart Lisbeth on errors
-
-**Workaround:** Implement equivalent functionality directly in ProfileExecutor.
-
-### 2. Max Sessions Error
-When Lisbeth hits "Max Sessions reached", the profile's CodeChunk restart logic doesn't work.
-
-**TODO:** Implement proper Lisbeth restart in LevelingController:
+**TODO:** Implement proper Lisbeth restart in LevelingSequence:
 ```csharp
-// Pseudo-code
 if (lisbethError.Contains("Max Sessions"))
 {
     await LisbethApi.Stop();
@@ -105,14 +89,14 @@ if (lisbethError.Contains("Max Sessions"))
 }
 ```
 
-### 3. Entity Variables Not Dynamic
-Profile uses `&crp;`, `&bsm;`, etc. to enable/disable class leveling. Currently these are pre-processed as static values.
+### 2. Gearset Switching
+Class switching uses chat command which may not work if gearset isn't named correctly.
 
-**TODO:** Consider adding a configuration UI for these toggles.
+**TODO:** Implement gearset lookup by ClassJobType and activate directly.
 
 ## Required Items (Manual Obtain)
 
-These items from GrindMats.txt cannot be obtained by Lisbeth/RebornBuddy and must be acquired manually:
+These items cannot be obtained by Lisbeth/RebornBuddy and must be acquired manually:
 
 ### Early Levels (1-40)
 - Aldgoat Skin x30
@@ -127,7 +111,6 @@ These items from GrindMats.txt cannot be obtained by Lisbeth/RebornBuddy and mus
 - Bear Fat x58
 
 ### High Levels (80-100)
-See GrindMats.txt for complete list including:
 - Gaja Hide, Sea Swallow Skin, Almasty Fur
 - Silver Lobo Hide, Hammerhead Crocodile Skin
 - Br'aax Hide, Gomphotherium Skin, Rroneek Fleece
@@ -135,7 +118,7 @@ See GrindMats.txt for complete list including:
 
 ## Gear Breakpoints
 
-The profile handles gear upgrades at these levels:
+The leveling system should handle gear upgrades at these levels:
 - Level 21: GEAR21 set
 - Level 41: GEAR41 set
 - Level 53: GEAR53 set
@@ -149,7 +132,7 @@ The profile handles gear upgrades at these levels:
 ## Leveling Paths
 
 ### Crafters (DoH)
-1. **1-21**: Class quests + basic grinding
+1. **1-21**: Class quests + basic grinding via Lisbeth
 2. **21-40**: Collectables (GC turn-ins available at 20+)
 3. **41-63**: Collectables + Ishgard Restoration
 4. **63-70**: Diadem gathering + Ishgard crafting
@@ -158,7 +141,7 @@ The profile handles gear upgrades at these levels:
 7. **90-100**: Wachumeqimeqi deliveries + Leves
 
 ### Gatherers (DoL)
-1. **1-21**: Class quests + normal gathering
+1. **1-21**: Class quests + normal gathering via Lisbeth
 2. **21-50**: Levequests + timed nodes
 3. **50-60**: Collectables
 4. **60-70**: Diadem
@@ -168,9 +151,9 @@ The profile handles gear upgrades at these levels:
 ## Future Enhancements
 
 ### Priority 1 (Essential)
-- [ ] Implement actual navigation (GetTo, TeleportTo)
-- [ ] Implement class switching (ChangeClass)
-- [ ] Implement NPC interaction (LLTalkTo, LLPickupQuest, LLTurnIn)
+- [ ] Populate LevelingData.GrindItems for all classes
+- [ ] Populate LevelingData.ClassQuests for all classes
+- [ ] Implement LevelTo100Async (Ishgard Diadem content)
 - [ ] Add Lisbeth error recovery with retry logic
 - [ ] Implement auto-equip for gear upgrades
 
@@ -188,29 +171,44 @@ The profile handles gear upgrades at these levels:
 
 ## Development Notes
 
-### Adding New Behavior Handlers
+### Adding New Grind Items
 
-1. Add case in `ProfileExecutor.ExecuteElementAsync()`
-2. Create `Execute[TagName]Async()` method
-3. Implement actual ff14bot API calls
-4. Test with isolated profile snippets
+Add entries to `LevelingData.GrindItems` dictionary:
+```csharp
+{ ClassJobType.Carpenter, new List<(int minLevel, uint itemId, int amount)>
+    {
+        (1, 1000, 10),   // Level 1+: Item 1000 x10
+        (5, 1001, 15),   // Level 5+: Item 1001 x15
+        (10, 1002, 20),  // Level 10+: Item 1002 x20
+        // ...
+    }
+}
+```
 
-### Adding New Condition Functions
+### Adding New Class Quests
 
-1. Add regex match in `EvaluateConditionFunction()`
-2. Implement helper method for the condition
-3. Handle edge cases (not in game, null checks)
+Add entries to `LevelingData.ClassQuests` dictionary:
+```csharp
+{ ClassJobType.Carpenter, new List<ClassQuest>
+    {
+        new ClassQuest { QuestId = 65675, RequiredLevel = 5, NpcId = 1000153, ... },
+        new ClassQuest { QuestId = 65676, RequiredLevel = 10, NpcId = 1000153, ... },
+        // ...
+    }
+}
+```
 
 ### Testing
 
-Due to dependency on ff14bot and game state, testing is limited to:
-- Profile parsing validation
-- Condition expression parsing
-- Integration testing in-game
+Testing requires in-game execution:
+- Use Debug Mode tab in TheWrangler UI
+- `/unlock` command to check class status
+- `/test4` command to list nearby NPCs
+- Manual breakpoint testing with leveling
 
 ## References
 
-- DoH-DoL-Profiles Wiki: https://github.com/bro-jobs/DoH-DoL-Profiles/wiki
+- LlamaLibrary: Navigation, NPC interaction helpers
 - Lisbeth documentation (in-game help)
 - ff14bot API documentation
-- Quest Behaviors in `Quest Behaviors/` folder for reference implementations
+- ClassUnlockData.cs for unlock quest IDs and NPC locations

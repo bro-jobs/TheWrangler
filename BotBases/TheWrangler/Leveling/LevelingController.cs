@@ -3,42 +3,33 @@
  * =================================================
  *
  * PURPOSE:
- * Orchestrates the DoH/DoL leveling process by interpreting the profile XML
- * and executing behaviors directly via TheWrangler instead of using the
- * RebornBuddy profile system. This allows for greater control and dynamic
- * item quantity calculation.
+ * Orchestrates the DoH/DoL leveling process using pure C# code.
+ * All leveling logic is defined in LevelingSequence.cs and LevelingData.cs.
+ * No XML profile parsing is needed.
  *
  * ARCHITECTURE:
- * - Parses Start.xml and sub-profiles to understand the leveling path
- * - Evaluates conditions (If/While) to determine which actions to execute
- * - Executes behaviors like Lisbeth orders, navigation, class changes, etc.
- * - Reports status updates to the UI via events
+ * - LevelingSequence handles the main leveling loop and execution
+ * - LevelingData contains all grind items, class quests, and level breakpoints
+ * - LevelingController coordinates between the UI and LevelingSequence
+ * - Uses LlamaLibrary for navigation and NPC interaction
+ * - Uses Lisbeth API for crafting and gathering orders
  *
  * KEY FEATURES:
  * - Class level tracking for all crafters/gatherers
- * - Missing item detection at startup
- * - Current directive display (e.g., "Leveling Alchemist to 70 through Diadem")
+ * - Current directive display (e.g., "Leveling Alchemist to 21")
  * - Direct Lisbeth integration without going through OrderBot
+ * - Automatic class unlocking via guild NPCs
+ * - Class quest completion for XP gains
  *
  * TODO LIST:
- * - [ ] Parse Start.xml and all sub-profiles
- * - [ ] Implement condition evaluator for IsQuestCompleted, HasItem, etc.
- * - [ ] Implement all behavior handlers (Lisbeth, GetTo, ChangeClass, etc.)
+ * - [ ] Implement Ishgard Diadem leveling (21-100)
  * - [ ] Handle Lisbeth errors and implement retry logic for "Max Sessions"
- * - [ ] Add progress tracking and resumption after stop
- * - [ ] Implement autocraft and autosell functionality
- * - [ ] Add Diadem leveling support
- * - [ ] Add class quest handling
  * - [ ] Add gear upgrade handling at breakpoints (21, 41, 53, 63, 70, 80, 90)
- *
- * KNOWN ISSUES:
- * - CodeChunks that try to restart Lisbeth on "Max Sessions" don't work in profiles
- * - Need to implement our own Lisbeth restart logic
+ * - [ ] Add progress tracking and resumption after stop
  */
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,6 +38,7 @@ using ff14bot.Enums;
 using ff14bot.Helpers;
 using ff14bot.Managers;
 using TreeSharp;
+using TheWrangler.Leveling;
 
 namespace TheWrangler
 {
@@ -56,14 +48,6 @@ namespace TheWrangler
     public class LevelingController
     {
         #region Constants
-
-        /// <summary>
-        /// Path to the DoH-DoL profiles relative to the assembly location.
-        /// </summary>
-        private static readonly string ProfilesBasePath = Path.Combine(
-            Path.GetDirectoryName(typeof(LevelingController).Assembly.Location),
-            "..", "..", "Profiles", "DoH-DoL-Profiles", "DoH-DoL Leveling"
-        );
 
         /// <summary>
         /// Target level for all classes.
@@ -78,7 +62,6 @@ namespace TheWrangler
         private CancellationTokenSource _cts;
         private string _currentDirective = "Not Started";
         private string _currentDetail = "";
-        private ProfileExecutor _executor;
         private readonly LisbethApi _lisbethApi;
 
         #endregion
@@ -109,11 +92,6 @@ namespace TheWrangler
         /// Returns true if leveling has been started and is pending execution by the behavior tree.
         /// </summary>
         public bool IsPendingStart { get; private set; }
-
-        /// <summary>
-        /// Gets the ProfileExecutor for direct access from behavior tree.
-        /// </summary>
-        public ProfileExecutor Executor => _executor;
 
         #endregion
 
@@ -149,7 +127,6 @@ namespace TheWrangler
         public LevelingController()
         {
             _lisbethApi = new LisbethApi();
-            _executor = new ProfileExecutor(this);
         }
 
         #endregion
@@ -224,53 +201,6 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Checks for required items that must be manually obtained.
-        /// </summary>
-        /// <returns>Result containing missing items information.</returns>
-        public MissingItemsResult CheckRequiredItems()
-        {
-            var result = new MissingItemsResult();
-
-            try
-            {
-                // Parse GrindMats.txt for required items
-                var grindMatsPath = Path.Combine(ProfilesBasePath, "GrindMats.txt");
-                if (File.Exists(grindMatsPath))
-                {
-                    var requiredItems = ParseGrindMats(grindMatsPath);
-                    foreach (var item in requiredItems)
-                    {
-                        // Check if player has enough of this item
-                        // TODO: Implement actual inventory check via ff14bot
-                        // For now, just report all items as potentially needed
-                        result.Items.Add(new MissingItemInfo
-                        {
-                            Name = item.Key,
-                            ItemId = 0, // TODO: Look up item ID from name
-                            Needed = item.Value,
-                            Have = 0, // TODO: Check inventory
-                            IsRequired = true
-                        });
-                    }
-                }
-
-                // Also check MateriaBuyList.json for materia requirements
-                var materiaBuyPath = Path.Combine(ProfilesBasePath, "MateriaBuyList.json");
-                if (File.Exists(materiaBuyPath))
-                {
-                    // TODO: Parse and check materia requirements
-                    Log("MateriaBuyList.json found, materia checking not yet implemented.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Error checking required items: {ex.Message}");
-            }
-
-            return result;
-        }
-
-        /// <summary>
         /// Refreshes and broadcasts current class levels.
         /// </summary>
         public void RefreshClassLevels()
@@ -294,9 +224,21 @@ namespace TheWrangler
             }
         }
 
+        /// <summary>
+        /// Checks for required items that must be manually obtained.
+        /// Note: This is a stub - item checking will be implemented based on LevelingData.
+        /// </summary>
+        /// <returns>Result containing missing items information.</returns>
+        public MissingItemsResult CheckRequiredItems()
+        {
+            // TODO: Implement item checking based on LevelingData grind items
+            // For now, return empty result
+            return new MissingItemsResult();
+        }
+
         #endregion
 
-        #region Internal Methods (for ProfileExecutor)
+        #region Internal Methods (for LevelingSequence)
 
         /// <summary>
         /// Sets the current directive and raises the event.
@@ -335,6 +277,7 @@ namespace TheWrangler
 
         /// <summary>
         /// Main leveling loop that runs asynchronously.
+        /// Uses the pure C# LevelingSequence instead of XML profiles.
         /// </summary>
         private async Task RunLevelingLoopAsync(CancellationToken token)
         {
@@ -344,54 +287,9 @@ namespace TheWrangler
             {
                 Log("Starting DoH/DoL leveling process...");
 
-                // Step 1: Unlock any locked DoH/DoL classes first
-                SetDirective("Checking Classes", "Checking for locked classes...");
-                var lockedClasses = _executor.GetLockedClasses();
-
-                if (lockedClasses.Count > 0)
-                {
-                    Log($"Found {lockedClasses.Count} locked class(es). Starting unlock sequence...");
-                    SetDirective("Unlocking Classes", $"Unlocking {lockedClasses.Count} class(es)...");
-
-                    var unlockSuccess = await _executor.UnlockAllClassesAsync(token);
-                    if (!unlockSuccess)
-                    {
-                        Log("ERROR: Failed to unlock all classes. Stopping leveling.");
-                        return;
-                    }
-
-                    Log("All locked classes have been unlocked.");
-                    RefreshClassLevels();
-                }
-                else
-                {
-                    Log("All DoH/DoL classes are already unlocked.");
-                }
-
-                // Step 2: Load and parse Start.xml
-                var startXmlPath = Path.Combine(ProfilesBasePath, "Start.xml");
-                if (!File.Exists(startXmlPath))
-                {
-                    Log($"ERROR: Start.xml not found at: {startXmlPath}");
-                    return;
-                }
-
-                Log($"Loading profile from: {startXmlPath}");
-                SetDirective("Loading Profile", "Parsing Start.xml...");
-
-                // Parse the profile
-                var profile = await _executor.LoadProfileAsync(startXmlPath, token);
-                if (profile == null)
-                {
-                    Log("ERROR: Failed to parse Start.xml");
-                    return;
-                }
-
-                Log($"Profile loaded with {profile.Elements.Count} top-level elements");
-
-                // Step 3: Execute the profile
-                SetDirective("Running", "Executing leveling profile...");
-                success = await _executor.ExecuteProfileAsync(profile, token);
+                // Create and run the leveling sequence (pure C# - no XML)
+                var sequence = new LevelingSequence(this);
+                success = await sequence.RunAsync(token);
 
                 if (token.IsCancellationRequested)
                 {
@@ -400,7 +298,7 @@ namespace TheWrangler
                 }
                 else if (success)
                 {
-                    Log("All classes leveled to 100!");
+                    Log("All classes leveled successfully!");
                 }
             }
             catch (OperationCanceledException)
@@ -518,58 +416,6 @@ namespace TheWrangler
                 levels.GetValueOrDefault(ClassJobType.Botanist, 0),
                 levels.GetValueOrDefault(ClassJobType.Fisher, 0)
             );
-        }
-
-        /// <summary>
-        /// Parses GrindMats.txt to extract required item quantities.
-        /// </summary>
-        private Dictionary<string, int> ParseGrindMats(string filePath)
-        {
-            var items = new Dictionary<string, int>();
-
-            try
-            {
-                var lines = File.ReadAllLines(filePath);
-                bool inSummarySection = false;
-
-                foreach (var line in lines)
-                {
-                    var trimmed = line.Trim();
-
-                    // Skip empty lines and separators
-                    if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("---"))
-                    {
-                        continue;
-                    }
-
-                    // Look for the summary section (item names followed by quantities)
-                    // Format: "Item Name: NNNx"
-                    if (trimmed.Contains(":") && trimmed.EndsWith("x"))
-                    {
-                        var colonIndex = trimmed.LastIndexOf(':');
-                        if (colonIndex > 0)
-                        {
-                            var itemName = trimmed.Substring(0, colonIndex).Trim();
-                            var quantityStr = trimmed.Substring(colonIndex + 1).Trim().TrimEnd('x');
-
-                            if (int.TryParse(quantityStr, out int quantity))
-                            {
-                                // Only include items from the summary (simple format, no level info)
-                                if (!itemName.Contains("Lv") && !itemName.Contains("GEAR"))
-                                {
-                                    items[itemName] = quantity;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Error parsing GrindMats.txt: {ex.Message}");
-            }
-
-            return items;
         }
 
         #endregion
