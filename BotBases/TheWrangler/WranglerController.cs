@@ -95,6 +95,12 @@ namespace TheWrangler
         public bool IsExecuting { get; private set; }
 
         /// <summary>
+        /// Flag indicating a stop gently request is pending.
+        /// The behavior tree will execute this on the bot thread.
+        /// </summary>
+        public bool PendingStopGently { get; private set; }
+
+        /// <summary>
         /// Get the Lisbeth API for direct execution by behavior tree.
         /// </summary>
         public LisbethApi LisbethApi => _lisbethApi;
@@ -331,10 +337,11 @@ namespace TheWrangler
         {
             if (!TheWranglerBotBase.IsBotRunning)
             {
-                if (IsExecuting || HasPendingOrder)
+                if (IsExecuting || HasPendingOrder || PendingStopGently)
                 {
                     Log("Bot is not running but controller state was dirty. Resetting state.");
                     PendingOrderJson = null;
+                    PendingStopGently = false;
                     IsExecuting = false;
                     OnStatusChanged("Ready");
                 }
@@ -358,7 +365,8 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Resumes incomplete orders using Lisbeth's RequestRestart.
+        /// Resumes incomplete orders by queueing them for execution.
+        /// The behavior tree will execute them on the bot thread.
         /// </summary>
         /// <returns>True if resume was initiated successfully</returns>
         public bool ResumeIncompleteOrders()
@@ -394,11 +402,9 @@ namespace TheWrangler
             OnStatusChanged("Resuming orders...");
             OnLogMessage("Resuming incomplete orders...");
 
-            // Use RequestRestart to resume the incomplete orders
-            _lisbethApi.RequestRestart(incompleteOrders);
-
-            // Mark as executing since RequestRestart triggers order execution
-            IsExecuting = true;
+            // Queue the incomplete orders as a pending order
+            // The behavior tree will execute them on the bot thread
+            PendingOrderJson = incompleteOrders;
 
             return true;
         }
@@ -413,6 +419,7 @@ namespace TheWrangler
             _lisbethApi.Stop();
 
             PendingOrderJson = null;
+            PendingStopGently = false;
             IsExecuting = false;
             OnStatusChanged("Bot stopped");
             OnOrderCompleted(false);
@@ -428,7 +435,7 @@ namespace TheWrangler
 
         /// <summary>
         /// Requests Lisbeth to stop gracefully after the current action.
-        /// This can be called from the UI thread - it signals but doesn't block.
+        /// Sets a flag that the behavior tree will process on the bot thread.
         /// </summary>
         public void RequestStopGently()
         {
@@ -438,11 +445,37 @@ namespace TheWrangler
                 return;
             }
 
+            if (PendingStopGently)
+            {
+                OnLogMessage("Stop already requested.");
+                return;
+            }
+
             OnStatusChanged("Stopping gently...");
             OnLogMessage("Requesting Lisbeth to stop gently...");
 
-            // Fire-and-forget - we just signal Lisbeth to stop
-            _lisbethApi.RequestStopGently();
+            // Set flag for behavior tree to process on bot thread
+            PendingStopGently = true;
+        }
+
+        /// <summary>
+        /// Executes the pending stop gently request.
+        /// Called by the behavior tree on the bot thread.
+        /// </summary>
+        /// <returns>Task that completes when stop is signaled</returns>
+        public async System.Threading.Tasks.Task ExecuteStopGentlyAsync()
+        {
+            if (!PendingStopGently)
+            {
+                return;
+            }
+
+            PendingStopGently = false;
+            Log("Executing stop gently on bot thread...");
+
+            await _lisbethApi.StopGentlyAsync();
+
+            Log("Stop gently signal sent.");
         }
 
         #endregion
