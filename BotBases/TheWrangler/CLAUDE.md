@@ -127,6 +127,10 @@ Log($"Stopped. Final location: {Core.Me.Location}");
 
 **Note:** `GameObjectManager.GetObjectsByNPCId(npcId)` works correctly (tested).
 
+### Navigation
+Use `LlamaLibrary.Helpers.Navigation.GetTo(uint zoneId, Vector3 xyz)` for navigation.
+This handles everything: NavigationProvider init, teleportation, NavGraph, Flightor fallback.
+
 ### Dialog Windows
 - `Talk.DialogOpen` / `Talk.Next()` - Dialog text
 - `SelectYesno.IsOpen` / `SelectYesno.ClickYes()` - Yes/No prompts
