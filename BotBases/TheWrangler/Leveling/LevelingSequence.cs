@@ -138,46 +138,99 @@ namespace TheWrangler.Leveling
             _controller.SetDirective($"Unlocking {job}", "Navigating to guild...");
             _controller.Log($"Unlocking {job}...");
 
-            // Navigate and interact using LlamaLibrary
-            var result = await Navigation.GetToInteractNpcSelectString(
-                info.PickupNpcId, info.ZoneId, info.PickupLocation, 0);
-
-            if (!result)
+            // Navigate to pickup NPC location
+            _controller.Log($"Navigating to pickup NPC in zone {info.ZoneId}...");
+            if (!await Navigation.GetTo(info.ZoneId, info.PickupLocation))
             {
-                _controller.Log($"Failed to interact with {job} guild NPC.");
+                _controller.Log($"Failed to navigate to {job} guild.");
                 return false;
             }
 
-            // Wait for dialog/quest acceptance
-            await Coroutine.Sleep(2000);
-
-            // Handle quest pickup if needed
-            if (!QuestLogManager.IsQuestCompleted(info.UnlockQuestId))
+            // Find and interact with NPC
+            var pickupNpc = GameObjectManager.GetObjectByNPCId(info.PickupNpcId);
+            if (pickupNpc == null)
             {
-                // Pick up quest
-                if (!QuestLogManager.HasQuest((int)info.UnlockQuestId))
+                _controller.Log($"Pickup NPC {info.PickupNpcId} not found.");
+                return false;
+            }
+
+            // Move into interact range if needed
+            if (!pickupNpc.IsWithinInteractRange)
+            {
+                await Navigation.OffMeshMoveInteract(pickupNpc);
+            }
+
+            // Interact with NPC to start quest
+            _controller.Log($"Interacting with pickup NPC...");
+            pickupNpc.Interact();
+            await Coroutine.Yield(); // Important: yield after interact to maintain context
+            await Coroutine.Sleep(1000); // Wait for dialog to open
+
+            // Handle any dialog that appears (prereq quest, guild intro, etc.)
+            await HandleQuestDialogAsync(token);
+            await Coroutine.Sleep(500);
+
+            // Check if we need to pick up the unlock quest
+            if (!QuestLogManager.IsQuestCompleted(info.UnlockQuestId) && !QuestLogManager.HasQuest((int)info.UnlockQuestId))
+            {
+                // Interact again to pick up the actual unlock quest
+                pickupNpc = GameObjectManager.GetObjectByNPCId(info.PickupNpcId);
+                if (pickupNpc != null)
                 {
+                    if (!pickupNpc.IsWithinInteractRange)
+                    {
+                        await Navigation.OffMeshMoveInteract(pickupNpc);
+                    }
+                    pickupNpc.Interact();
+                    await Coroutine.Yield();
+                    await Coroutine.Sleep(1000);
                     await HandleQuestDialogAsync(token);
                 }
+            }
 
-                // Turn in quest
-                if (QuestLogManager.HasQuest((int)info.UnlockQuestId))
+            // Turn in quest if we have it
+            if (QuestLogManager.HasQuest((int)info.UnlockQuestId))
+            {
+                _controller.Log($"Turning in unlock quest to NPC {info.TurnInNpcId}...");
+
+                // Navigate to turn-in NPC
+                if (!await Navigation.GetTo(info.ZoneId, info.TurnInLocation))
                 {
-                    await Navigation.GetTo(info.ZoneId, info.TurnInLocation);
-                    var npc = GameObjectManager.GetObjectByNPCId(info.TurnInNpcId);
-                    if (npc != null)
+                    _controller.Log($"Failed to navigate to turn-in NPC.");
+                    return false;
+                }
+
+                var turnInNpc = GameObjectManager.GetObjectByNPCId(info.TurnInNpcId);
+                if (turnInNpc == null)
+                {
+                    // Retry finding NPC
+                    await Coroutine.Sleep(1000);
+                    turnInNpc = GameObjectManager.GetObjectByNPCId(info.TurnInNpcId);
+                }
+
+                if (turnInNpc != null)
+                {
+                    if (!turnInNpc.IsWithinInteractRange)
                     {
-                        if (!npc.IsWithinInteractRange)
-                            await Navigation.OffMeshMoveInteract(npc);
-                        npc.Interact();
-                        await HandleQuestDialogAsync(token);
+                        await Navigation.OffMeshMoveInteract(turnInNpc);
                     }
+                    turnInNpc.Interact();
+                    await Coroutine.Yield();
+                    await Coroutine.Sleep(1000);
+                    await HandleQuestDialogAsync(token);
+                }
+                else
+                {
+                    _controller.Log($"Turn-in NPC not found.");
+                    return false;
                 }
             }
 
             // Verify unlock
             await Coroutine.Sleep(1000);
-            return Core.Me.Levels[job] > 0 || QuestLogManager.IsQuestCompleted(info.UnlockQuestId);
+            var isUnlocked = Core.Me.Levels[job] > 0 || QuestLogManager.IsQuestCompleted(info.UnlockQuestId);
+            _controller.Log($"{job} unlock status: {(isUnlocked ? "Success" : "Failed")}");
+            return isUnlocked;
         }
 
         #endregion
@@ -333,13 +386,20 @@ namespace TheWrangler.Leveling
             // Pick up quest
             if (!QuestLogManager.HasQuest((int)quest.QuestId) && !QuestLogManager.IsQuestCompleted(quest.QuestId))
             {
-                await Navigation.GetTo(quest.ZoneId, quest.NpcLocation);
+                if (!await Navigation.GetTo(quest.ZoneId, quest.NpcLocation))
+                {
+                    _controller.Log($"Failed to navigate to quest NPC.");
+                    return false;
+                }
+
                 var npc = GameObjectManager.GetObjectByNPCId(quest.NpcId);
                 if (npc != null)
                 {
                     if (!npc.IsWithinInteractRange)
                         await Navigation.OffMeshMoveInteract(npc);
                     npc.Interact();
+                    await Coroutine.Yield();
+                    await Coroutine.Sleep(1000);
                     await HandleQuestDialogAsync(token);
                 }
             }
@@ -347,13 +407,20 @@ namespace TheWrangler.Leveling
             // Turn in quest
             if (QuestLogManager.HasQuest((int)quest.QuestId))
             {
-                await Navigation.GetTo(quest.ZoneId, quest.NpcLocation);
+                if (!await Navigation.GetTo(quest.ZoneId, quest.NpcLocation))
+                {
+                    _controller.Log($"Failed to navigate to quest turn-in NPC.");
+                    return false;
+                }
+
                 var npc = GameObjectManager.GetObjectByNPCId(quest.NpcId);
                 if (npc != null)
                 {
                     if (!npc.IsWithinInteractRange)
                         await Navigation.OffMeshMoveInteract(npc);
                     npc.Interact();
+                    await Coroutine.Yield();
+                    await Coroutine.Sleep(1000);
                     await HandleQuestDialogAsync(token);
                 }
             }
