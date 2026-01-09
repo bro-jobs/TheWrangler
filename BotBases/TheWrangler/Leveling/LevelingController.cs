@@ -78,6 +78,7 @@ namespace TheWrangler
         private string _currentDirective = "Not Started";
         private string _currentDetail = "";
         private ProfileExecutor _executor;
+        private readonly LisbethApi _lisbethApi;
 
         #endregion
 
@@ -87,6 +88,11 @@ namespace TheWrangler
         /// Gets whether the leveling process is currently running.
         /// </summary>
         public bool IsRunning => _isRunning;
+
+        /// <summary>
+        /// Gets the Lisbeth API instance for executing orders.
+        /// </summary>
+        public LisbethApi LisbethApi => _lisbethApi;
 
         /// <summary>
         /// Gets the current directive being executed.
@@ -131,6 +137,7 @@ namespace TheWrangler
         /// </summary>
         public LevelingController()
         {
+            _lisbethApi = new LisbethApi();
             _executor = new ProfileExecutor(this);
         }
 
