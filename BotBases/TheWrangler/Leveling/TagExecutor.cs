@@ -236,9 +236,10 @@ namespace TheWrangler.Leveling
                     var status = composite.Tick(context);
                     tickCount++;
 
-                    if (status != RunStatus.Running)
+                    // Only break on Failure - Success means one action completed but behavior may need more ticks
+                    if (status == RunStatus.Failure)
                     {
-                        Logging.Write($"[TagExecutor] Composite returned {status} after {tickCount} ticks, IsDone={behavior.IsDone}");
+                        Logging.Write($"[TagExecutor] Composite returned Failure after {tickCount} ticks, IsDone={behavior.IsDone}");
                         break;
                     }
 
