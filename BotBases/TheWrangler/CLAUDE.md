@@ -125,6 +125,8 @@ Log($"Stopped. Final location: {Core.Me.Location}");
 **IMPORTANT:** Use `GameObjectManager.GameObjects` NOT `GetObjectsOfType<T>()`.
 `GetObjectsOfType` returns empty results while `GameObjects` works correctly.
 
+**Note:** `GameObjectManager.GetObjectsByNPCId(npcId)` works correctly (tested).
+
 ### Dialog Windows
 - `Talk.DialogOpen` / `Talk.Next()` - Dialog text
 - `SelectYesno.IsOpen` / `SelectYesno.ClickYes()` - Yes/No prompts
