@@ -168,7 +168,8 @@ namespace TheWrangler
 
             // Debug Mode styling
             tabDebugMode.BackColor = Color.FromArgb(37, 37, 38);
-            lblDebugCommands.ForeColor = Color.FromArgb(200, 200, 200);
+            txtDebugCommands.BackColor = Color.FromArgb(40, 40, 45);
+            txtDebugCommands.ForeColor = Color.FromArgb(200, 200, 200);
             txtDebugCommand.BackColor = Color.FromArgb(50, 50, 55);
             txtDebugCommand.ForeColor = Color.FromArgb(220, 220, 220);
             txtDebugLog.BackColor = Color.FromArgb(30, 30, 30);
@@ -593,7 +594,7 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Test 1: Change class using gearset.
+        /// Test 1: Change class using gearset with auto dialog handling.
         /// </summary>
         private void ExecuteTest1_ChangeClass(string jobName)
         {
@@ -634,8 +635,41 @@ namespace TheWrangler
 
             gearSets.First().Activate();
 
-            LogToDebugUI("Gearset activated. If SelectYesno dialog appears, run /test1 again or manually click Yes.", Color.LightBlue);
-            LogToDebugUI($"Check current job with another /test1 command after dialogs close.", Color.LightBlue);
+            // Handle dialogs asynchronously
+            LogToDebugUI("Waiting for dialogs...", Color.LightBlue);
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var timeout = 10000;
+                var elapsed = 0;
+                var dialogsHandled = 0;
+
+                // Wait a bit for dialog to appear
+                await System.Threading.Tasks.Task.Delay(500);
+
+                while (elapsed < timeout && ff14bot.Core.Me.CurrentJob != targetJob)
+                {
+                    if (ff14bot.RemoteWindows.SelectYesno.IsOpen)
+                    {
+                        LogToDebugUI("Confirming gear replacement dialog...", Color.LightBlue);
+                        ff14bot.RemoteWindows.SelectYesno.ClickYes();
+                        dialogsHandled++;
+                        await System.Threading.Tasks.Task.Delay(500);
+                        elapsed += 500;
+                        continue;
+                    }
+                    await System.Threading.Tasks.Task.Delay(100);
+                    elapsed += 100;
+                }
+
+                if (ff14bot.Core.Me.CurrentJob == targetJob)
+                {
+                    LogToDebugUI($"Success! Changed to {targetJob}. Dialogs handled: {dialogsHandled}", Color.LightGreen);
+                }
+                else
+                {
+                    LogToDebugUI($"Class change may have failed or timed out. Current job: {ff14bot.Core.Me.CurrentJob}", Color.Orange);
+                }
+            });
         }
 
         /// <summary>
@@ -717,21 +751,36 @@ namespace TheWrangler
         {
             LogToDebugUI("Test 4: Listing nearby NPCs...", Color.LightGreen);
 
-            var npcs = ff14bot.Managers.GameObjectManager.GameObjects
-                .Where(o => o.IsVisible && o.IsTargetable && o.Type == ff14bot.Enums.GameObjectType.EventNpc)
+            // Get all game objects first to see what's available
+            var allObjects = ff14bot.Managers.GameObjectManager.GameObjects.ToList();
+            LogToDebugUI($"Total game objects: {allObjects.Count}", Color.White);
+
+            // Find NPCs - include EventNpc and also check for NpcId > 0
+            var npcs = allObjects
+                .Where(o => o.IsVisible &&
+                           (o.Type == ff14bot.Enums.GameObjectType.EventNpc ||
+                            o.Type == ff14bot.Enums.GameObjectType.BattleNpc ||
+                            (o.NpcId > 0 && o.NpcId < 100000))) // NPCs typically have NpcId in a certain range
+                .OrderBy(o => o.Distance())
                 .Take(10)
                 .ToList();
 
             if (npcs.Count == 0)
             {
-                LogToDebugUI("No NPCs found nearby.", Color.Orange);
+                // Show what types ARE visible for debugging
+                var visibleTypes = allObjects
+                    .Where(o => o.IsVisible)
+                    .GroupBy(o => o.Type)
+                    .Select(g => $"{g.Key}: {g.Count()}")
+                    .ToList();
+                LogToDebugUI($"No NPCs found. Visible object types: {string.Join(", ", visibleTypes)}", Color.Orange);
                 return;
             }
 
             LogToDebugUI($"Found {npcs.Count} NPC(s):", Color.White);
             foreach (var npc in npcs)
             {
-                LogToDebugUI($"  {npc.Name} (ID: {npc.NpcId}) - Distance: {npc.Distance():F1}", Color.FromArgb(180, 220, 180));
+                LogToDebugUI($"  {npc.Name} (ID: {npc.NpcId}, Type: {npc.Type}) - Distance: {npc.Distance():F1}", Color.FromArgb(180, 220, 180));
             }
         }
 
