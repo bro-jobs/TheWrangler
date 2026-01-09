@@ -16,6 +16,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Buddy.Coroutines;
 using Clio.Utilities;
+using ff14bot.Helpers;
 using ff14bot.NeoProfiles;
 using ff14bot.NeoProfiles.Tags;
 using TreeSharp;
@@ -37,10 +38,13 @@ namespace TheWrangler.Leveling
         private static Type _llTalkToType;
         private static Type _llPickUpQuestType;
         private static Type _llTurnInTagType;
+        private static bool _typesLoaded;
 
-        static TagExecutor()
+        private static void EnsureTypesLoaded()
         {
-            // Try to load LlamaUtilities types at runtime
+            if (_typesLoaded) return;
+            _typesLoaded = true;
+
             try
             {
                 var assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -51,13 +55,19 @@ namespace TheWrangler.Leveling
                         _llTalkToType = asm.GetType("LlamaUtilities.OrderbotTags.LLTalkTo");
                         _llPickUpQuestType = asm.GetType("LlamaUtilities.OrderbotTags.LLPickUpQuest");
                         _llTurnInTagType = asm.GetType("LlamaUtilities.OrderbotTags.LLTurnInTag");
+                        Logging.Write($"[TagExecutor] Loaded LlamaUtilities types: TalkTo={_llTalkToType != null}, PickUp={_llPickUpQuestType != null}, TurnIn={_llTurnInTagType != null}");
                         break;
                     }
                 }
+
+                if (_llTalkToType == null)
+                {
+                    Logging.Write("[TagExecutor] LlamaUtilities types not found, using base RebornBuddy tags");
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback to base types if LlamaUtilities not available
+                Logging.Write($"[TagExecutor] Error loading LlamaUtilities types: {ex.Message}");
             }
         }
 
@@ -66,11 +76,20 @@ namespace TheWrangler.Leveling
         /// </summary>
         public static ProfileBehavior CreateTalkToTag(uint npcId, uint questId, Vector3 location)
         {
+            EnsureTypesLoaded();
+
             if (_llTalkToType != null)
             {
-                var tag = Activator.CreateInstance(_llTalkToType);
-                SetTagProperties(tag, npcId, questId, location);
-                return (ProfileBehavior)tag;
+                try
+                {
+                    var tag = Activator.CreateInstance(_llTalkToType);
+                    SetTagProperties(tag, npcId, questId, location);
+                    return (ProfileBehavior)tag;
+                }
+                catch (Exception ex)
+                {
+                    Logging.Write($"[TagExecutor] Error creating LLTalkTo: {ex.Message}");
+                }
             }
 
             return new TalkToTag
@@ -86,11 +105,20 @@ namespace TheWrangler.Leveling
         /// </summary>
         public static ProfileBehavior CreatePickupQuestTag(uint npcId, uint questId, Vector3 location)
         {
+            EnsureTypesLoaded();
+
             if (_llPickUpQuestType != null)
             {
-                var tag = Activator.CreateInstance(_llPickUpQuestType);
-                SetTagProperties(tag, npcId, questId, location);
-                return (ProfileBehavior)tag;
+                try
+                {
+                    var tag = Activator.CreateInstance(_llPickUpQuestType);
+                    SetTagProperties(tag, npcId, questId, location);
+                    return (ProfileBehavior)tag;
+                }
+                catch (Exception ex)
+                {
+                    Logging.Write($"[TagExecutor] Error creating LLPickUpQuest: {ex.Message}");
+                }
             }
 
             return new PickupQuestTag
@@ -102,15 +130,24 @@ namespace TheWrangler.Leveling
         }
 
         /// <summary>
-        /// Creates a TurnIn tag (LLTurnInTag if available, otherwise TurnInQuestTag).
+        /// Creates a TurnIn tag (LLTurnInTag if available, otherwise TurnInTag).
         /// </summary>
         public static ProfileBehavior CreateTurnInTag(uint npcId, uint questId, Vector3 location)
         {
+            EnsureTypesLoaded();
+
             if (_llTurnInTagType != null)
             {
-                var tag = Activator.CreateInstance(_llTurnInTagType);
-                SetTagProperties(tag, npcId, questId, location);
-                return (ProfileBehavior)tag;
+                try
+                {
+                    var tag = Activator.CreateInstance(_llTurnInTagType);
+                    SetTagProperties(tag, npcId, questId, location);
+                    return (ProfileBehavior)tag;
+                }
+                catch (Exception ex)
+                {
+                    Logging.Write($"[TagExecutor] Error creating LLTurnInTag: {ex.Message}");
+                }
             }
 
             return new TurnInTag
@@ -150,22 +187,32 @@ namespace TheWrangler.Leveling
             int timeoutSeconds = DefaultTimeoutSeconds)
         {
             if (behavior == null)
-                throw new ArgumentNullException(nameof(behavior));
-
-            behavior.Start();
-
-            // Use reflection to call protected CreateBehavior method
-            var composite = CreateBehaviorMethod?.Invoke(behavior, null) as Composite;
-            if (composite == null)
             {
+                Logging.Write("[TagExecutor] Error: behavior is null");
                 return false;
             }
 
-            var context = new object();
-            var timeout = DateTime.Now.AddSeconds(timeoutSeconds);
+            if (CreateBehaviorMethod == null)
+            {
+                Logging.Write("[TagExecutor] Error: CreateBehaviorMethod not found via reflection");
+                return false;
+            }
 
             try
             {
+                behavior.Start();
+
+                // Use reflection to call protected CreateBehavior method
+                var composite = CreateBehaviorMethod.Invoke(behavior, null) as Composite;
+                if (composite == null)
+                {
+                    Logging.Write("[TagExecutor] Error: CreateBehavior returned null");
+                    return false;
+                }
+
+                var context = new object();
+                var timeout = DateTime.Now.AddSeconds(timeoutSeconds);
+
                 composite.Start(context);
                 await Coroutine.Yield();
 
@@ -173,6 +220,7 @@ namespace TheWrangler.Leveling
                 {
                     if (token.IsCancellationRequested)
                     {
+                        composite.Stop(context);
                         return false;
                     }
 
@@ -185,12 +233,16 @@ namespace TheWrangler.Leveling
                     await Coroutine.Yield();
                 }
 
-                return successCondition();
-            }
-            finally
-            {
                 composite.Stop(context);
                 behavior.Done();
+
+                return successCondition();
+            }
+            catch (Exception ex)
+            {
+                Logging.Write($"[TagExecutor] ExecuteAsync error: {ex.Message}");
+                Logging.Write($"[TagExecutor] Stack: {ex.StackTrace}");
+                return false;
             }
         }
     }
