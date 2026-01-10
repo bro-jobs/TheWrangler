@@ -330,27 +330,151 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Executes a resume order using ExecuteOrders directly.
+        /// Executes a resume order using RequestRestart.
+        /// RequestRestart is fire-and-forget and shows an Expansion confirmation dialog.
+        /// We automatically click Yes on the dialog, then poll for completion.
         ///
-        /// Note: RequestRestart only works when Lisbeth's behavior tree is running.
-        /// Since TheWrangler is the active bot, we must use ExecuteOrders instead.
-        /// This may re-expand suborders, but it's the only way to execute from
-        /// a non-Lisbeth bot.
-        ///
-        /// CoroutineStoppedException is NOT caught here - it propagates up to
+        /// Note: CoroutineStoppedException is NOT caught here - it propagates up to
         /// ExecuteOrderAsync for retry handling.
         /// </summary>
         private async Task ExecuteResumeOrderAsync(string json)
         {
-            Log("Resuming incomplete orders...");
-            Log("Note: Using ExecuteOrders (RequestRestart only works when Lisbeth is the active bot)");
+            Log("Resuming orders using RequestRestart...");
 
-            // ExecuteOrders is the standard way to run orders - it works from any bot
-            // The ignoreHome parameter is taken from settings
-            bool ignoreHome = WranglerSettings.Instance.IgnoreHome;
+            try
+            {
+                // Initialize the dialog helper for auto-clicking the Expansion dialog
+                var dialogHelper = new ExpansionDialogHelper();
+                if (!dialogHelper.Initialize())
+                {
+                    Log("Warning: Could not initialize dialog helper. Manual dialog confirmation may be required.");
+                }
 
-            bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
-            _controller.OnOrderExecutionComplete(result);
+                // RequestRestart doesn't re-expand suborders - it uses them as-is
+                // This will show an "Expansion" confirmation dialog
+                _controller.LisbethApi.RequestRestart(json);
+
+                // Wait for the Expansion dialog to appear and click Yes
+                // Give it up to 30 seconds to appear (it may take time to load)
+                const int dialogPollIntervalMs = 500;
+                const int maxDialogPolls = 60; // 30 seconds
+                bool dialogClicked = false;
+
+                Log("Waiting for Expansion confirmation dialog...");
+                for (int i = 0; i < maxDialogPolls; i++)
+                {
+                    await Coroutine.Sleep(dialogPollIntervalMs);
+
+                    // Check if there's a dialog and try to click it
+                    if (dialogHelper.HasExpansionDialog())
+                    {
+                        Log("Expansion dialog detected, clicking Yes...");
+                        int clicked = dialogHelper.TryClickAllExpansionDialogs();
+                        if (clicked > 0)
+                        {
+                            Log($"Successfully clicked Yes on {clicked} dialog(s).");
+                            dialogClicked = true;
+                            break;
+                        }
+                    }
+
+                    // Also check if orders have already started (dialog was clicked manually or didn't appear)
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    if (!string.IsNullOrWhiteSpace(activeOrders) && activeOrders != "{}" && activeOrders != "[]")
+                    {
+                        Log("Orders already active, dialog may have been confirmed manually.");
+                        dialogClicked = true;
+                        break;
+                    }
+                }
+
+                if (!dialogClicked)
+                {
+                    Log("Warning: Expansion dialog not detected or could not be clicked. Orders may not have started.");
+                    // Continue anyway - maybe it was clicked manually or the dialog behavior changed
+                }
+
+                // IMPORTANT: Wait for orders to actually START before polling for completion
+                // Lisbeth takes time to initialize and begin processing after the dialog is clicked
+                const int startupPollIntervalMs = 1000;
+                const int maxStartupPolls = 60; // 60 seconds to start
+                bool ordersStarted = false;
+
+                Log("Waiting for Lisbeth to start processing orders...");
+                for (int i = 0; i < maxStartupPolls; i++)
+                {
+                    await Coroutine.Sleep(startupPollIntervalMs);
+
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    Log($"DEBUG: GetActiveOrders returned: {(string.IsNullOrWhiteSpace(activeOrders) ? "(empty)" : activeOrders.Substring(0, Math.Min(100, activeOrders.Length)))}...");
+
+                    if (!string.IsNullOrWhiteSpace(activeOrders) && activeOrders != "{}" && activeOrders != "[]")
+                    {
+                        Log("Orders are now active, monitoring for completion...");
+                        ordersStarted = true;
+                        break;
+                    }
+
+                    // Also check if incomplete orders changed (Lisbeth might have cleared them)
+                    var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                    if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}")
+                    {
+                        // No more incomplete orders - Lisbeth cleared them (completed or failed)
+                        Log("Incomplete orders cleared - Lisbeth has processed them.");
+                        _controller.OnOrderExecutionComplete(true);
+                        return;
+                    }
+                }
+
+                if (!ordersStarted)
+                {
+                    // Lisbeth didn't start within the timeout
+                    // Check if there are still incomplete orders
+                    var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                    if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}")
+                    {
+                        Log("Orders completed (no incomplete orders remain).");
+                        _controller.OnOrderExecutionComplete(true);
+                    }
+                    else
+                    {
+                        Log("Warning: Lisbeth did not start processing orders within 60 seconds.");
+                        Log("There may be an issue with the resume. Check Lisbeth's state manually.");
+                        _controller.OnOrderExecutionError("Lisbeth did not start processing orders");
+                    }
+                    return;
+                }
+
+                // Poll for completion indefinitely - orders can take days or weeks
+                const int pollIntervalMs = 5000; // Check every 5 seconds
+
+                while (true)
+                {
+                    await Coroutine.Sleep(pollIntervalMs);
+
+                    // Check if there are still active orders
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    if (string.IsNullOrWhiteSpace(activeOrders) || activeOrders == "{}" || activeOrders == "[]")
+                    {
+                        // No more active orders - check if incomplete
+                        var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                        bool success = string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}";
+
+                        Log(success ? "Resume completed successfully!" : "Resume completed with incomplete orders.");
+                        _controller.OnOrderExecutionComplete(success);
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex.GetType().Name != "CoroutineStoppedException")
+            {
+                // Catch all exceptions EXCEPT CoroutineStoppedException
+                // CoroutineStoppedException should propagate up for retry handling
+                Log($"Error in resume: {ex.Message}");
+                Logging.WriteException(ex);
+                _controller.OnOrderExecutionError(ex.Message);
+            }
+            // Note: CoroutineStoppedException will propagate up to ExecuteOrderAsync
         }
 
         /// <summary>
