@@ -393,6 +393,27 @@ namespace TheWrangler
         /// </summary>
         private string HandleStatus()
         {
+            // Get character info if available
+            string characterName = "Unknown";
+            string worldName = "Unknown";
+            try
+            {
+                if (ff14bot.Core.Me != null)
+                {
+                    characterName = ff14bot.Core.Me.Name ?? "Unknown";
+                    // Try to get the home world name
+                    var homeWorld = ff14bot.Core.Me.HomeWorld;
+                    if (homeWorld != null)
+                    {
+                        worldName = homeWorld.Name ?? "Unknown";
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore errors - character info may not be available
+            }
+
             var status = new
             {
                 state = GetStateString(),
@@ -402,6 +423,9 @@ namespace TheWrangler
                 currentFile = WranglerSettings.Instance.JsonFileName ?? "None",
                 apiStatus = _controller.ApiStatus,
                 botRunning = TheWranglerBotBase.IsBotRunning,
+                characterName = characterName,
+                worldName = worldName,
+                runtimeSeconds = _controller.ExecutionRuntimeSeconds,
                 timestamp = DateTime.UtcNow.ToString("o")
             };
 

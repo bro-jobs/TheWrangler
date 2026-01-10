@@ -667,6 +667,9 @@ namespace TheWrangler
                     case "/test4":
                         ExecuteTest4_ListNpcs();
                         break;
+                    case "/test5":
+                        ExecuteTest5_GoHome();
+                        break;
                     case "/unlock":
                         ExecuteUnlockStatus();
                         break;
@@ -869,6 +872,46 @@ namespace TheWrangler
         }
 
         /// <summary>
+        /// Test 5: Go to Lisbeth's configured home location.
+        /// Queues command to run on bot thread for proper coroutine context.
+        /// </summary>
+        private void ExecuteTest5_GoHome()
+        {
+            LogToDebugUI("Test 5: Going to Lisbeth home location (queuing to bot thread)...", Color.LightGreen);
+
+            // Check if bot is running
+            if (!TheWranglerBotBase.IsBotRunning)
+            {
+                LogToDebugUI("Bot is not running. Start the bot first to use /test5.", Color.Orange);
+                LogToDebugUI("(Navigation requires the bot thread to be active)", Color.LightBlue);
+                return;
+            }
+
+            // First, check if home is configured
+            var homeHelper = new LisbethHomeHelper();
+            var homeLocation = homeHelper.GetHomeLocation();
+
+            if (homeLocation == null)
+            {
+                LogToDebugUI("No home location configured in Lisbeth settings.", Color.Orange);
+                LogToDebugUI("Configure a home in Lisbeth's settings (Home tab).", Color.LightBlue);
+                return;
+            }
+
+            LogToDebugUI($"Home found: {homeLocation.Area} (Zone {homeLocation.ZoneId})", Color.White);
+            LogToDebugUI($"Position: {homeLocation.Position}", Color.White);
+
+            // Queue command to run on bot thread
+            _controller.QueueDebugCommand("/test5", "", result =>
+            {
+                // This callback is called from bot thread, so we need to marshal to UI
+                LogToDebugUI(result, result.Contains("Success") ? Color.LightGreen : Color.Orange);
+            });
+
+            LogToDebugUI("Command queued. Navigation will start shortly...", Color.LightBlue);
+        }
+
+        /// <summary>
         /// Show DoH/DoL class unlock status.
         /// Queues command to run on bot thread for proper memory access.
         /// </summary>
@@ -909,6 +952,7 @@ namespace TheWrangler
             LogToDebugUI("  /test2 [id]   - Teleport to aetheryte (e.g. /test2 8)", Color.White);
             LogToDebugUI("  /test3        - Start navigation (move forward)", Color.White);
             LogToDebugUI("  /test4        - List nearby NPCs (requires bot running)", Color.White);
+            LogToDebugUI("  /test5        - Go to Lisbeth home (requires bot running)", Color.White);
             LogToDebugUI("  /unlock       - Show DoH/DoL unlock status (requires bot running)", Color.White);
             LogToDebugUI("  /stop         - Stop movement", Color.White);
             LogToDebugUI("  /help         - Show this help", Color.White);
