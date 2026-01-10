@@ -90,10 +90,14 @@ BACKGROUNDS_DIR = SCRIPT_DIR / "backgrounds"
 # Available themes
 AVAILABLE_THEMES = ["blue", "dark-blue", "green"]
 
-# Check for custom wrangler theme
+# Check for custom themes
 WRANGLER_THEME_PATH = THEMES_DIR / "wrangler_theme.json"
+DISCORD_THEME_PATH = THEMES_DIR / "discord_theme.json"
+
 if WRANGLER_THEME_PATH.exists():
     AVAILABLE_THEMES.append("wrangler")
+if DISCORD_THEME_PATH.exists():
+    AVAILABLE_THEMES.append("discord")
 
 
 @dataclass
@@ -350,13 +354,23 @@ class WranglerClient:
 class InstancePanel(ctk.CTkFrame):
     """A panel widget displaying a single Wrangler instance."""
 
-    # Color schemes for status indicators
+    # Color schemes for status indicators (Discord-style)
     COLORS = {
-        "unreachable": "#666666",
-        "stopped": "#95a5a6",
-        "idle": "#3498db",
-        "pending": "#f39c12",
-        "executing": "#2ecc71",
+        "unreachable": "#72767d",  # Discord muted
+        "stopped": "#72767d",
+        "idle": "#5865f2",  # Discord blurple
+        "pending": "#fee75c",  # Discord yellow
+        "executing": "#57f287",  # Discord green
+    }
+
+    # Discord-style button colors
+    BUTTON_COLORS = {
+        "primary": "#5865f2",  # Blurple
+        "primary_hover": "#4752c4",
+        "secondary": "#4f545c",
+        "secondary_hover": "#686d73",
+        "danger": "#ed4245",  # Discord red
+        "danger_hover": "#c93b3e",
     }
 
     def __init__(self, parent, instance: WranglerInstance,
@@ -447,8 +461,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Run",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#2196f3",
-            hover_color="#1976d2",
+            fg_color=self.BUTTON_COLORS["primary"],
+            hover_color=self.BUTTON_COLORS["primary_hover"],
             width=70,
             height=28,
             command=self._on_run_click
@@ -458,8 +472,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Resume",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#2196f3",
-            hover_color="#1976d2",
+            fg_color=self.BUTTON_COLORS["primary"],
+            hover_color=self.BUTTON_COLORS["primary_hover"],
             width=70,
             height=28,
             command=self._on_resume_click
@@ -469,8 +483,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Stop",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#1565c0",
-            hover_color="#0d47a1",
+            fg_color=self.BUTTON_COLORS["secondary"],
+            hover_color=self.BUTTON_COLORS["secondary_hover"],
             width=70,
             height=28,
             command=self._on_stop_click
@@ -480,8 +494,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Advanced",
             font=ctk.CTkFont(size=11),
-            fg_color="#1976d2",
-            hover_color="#1565c0",
+            fg_color=self.BUTTON_COLORS["secondary"],
+            hover_color=self.BUTTON_COLORS["secondary_hover"],
             width=70,
             height=28,
             command=self._on_advanced_click
@@ -491,8 +505,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="X",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#e74c3c",
-            hover_color="#c0392b",
+            fg_color=self.BUTTON_COLORS["danger"],
+            hover_color=self.BUTTON_COLORS["danger_hover"],
             width=28,
             height=28,
             command=self._on_remove_click
@@ -503,8 +517,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="\u22EE",  # Vertical ellipsis
             font=ctk.CTkFont(size=14),
-            fg_color="#555555",
-            hover_color="#666666",
+            fg_color=self.BUTTON_COLORS["secondary"],
+            hover_color=self.BUTTON_COLORS["secondary_hover"],
             width=28,
             height=28,
             command=self._show_menu
@@ -888,8 +902,8 @@ class AdvancedRunDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Start",
-            fg_color="#2196f3",
-            hover_color="#1976d2",
+            fg_color="#5865f2",
+            hover_color="#4752c4",
             width=100,
             command=self._on_start
         ).pack(side="right", padx=5)
@@ -897,8 +911,8 @@ class AdvancedRunDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Save",
-            fg_color="#1976d2",
-            hover_color="#1565c0",
+            fg_color="#4f545c",
+            hover_color="#686d73",
             width=100,
             command=self._on_save
         ).pack(side="right", padx=5)
@@ -915,7 +929,7 @@ class AdvancedRunDialog(ctk.CTkToplevel):
                                    (self.timer_frame, "timer"),
                                    (self.schedule_frame, "schedule")]:
             if mode == frame_mode:
-                frame.configure(border_width=2, border_color="#2196f3")
+                frame.configure(border_width=2, border_color="#5865f2")
             else:
                 frame.configure(border_width=0)
 
@@ -1042,8 +1056,8 @@ class AddInstanceDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Add",
-            fg_color="#2196f3",
-            hover_color="#1976d2",
+            fg_color="#5865f2",
+            hover_color="#4752c4",
             width=100,
             command=self._on_add
         ).pack(side="right", padx=5)
@@ -1387,7 +1401,9 @@ class WranglerMasterApp(ctk.CTk):
         """Applies the current theme settings."""
         ctk.set_appearance_mode(self.app_settings.appearance_mode)
 
-        if self.app_settings.color_theme == "wrangler" and WRANGLER_THEME_PATH.exists():
+        if self.app_settings.color_theme == "discord" and DISCORD_THEME_PATH.exists():
+            ctk.set_default_color_theme(str(DISCORD_THEME_PATH))
+        elif self.app_settings.color_theme == "wrangler" and WRANGLER_THEME_PATH.exists():
             ctk.set_default_color_theme(str(WRANGLER_THEME_PATH))
         elif self.app_settings.color_theme in ["blue", "dark-blue", "green"]:
             ctk.set_default_color_theme(self.app_settings.color_theme)
@@ -1435,9 +1451,6 @@ class WranglerMasterApp(ctk.CTk):
 
     def _create_ui(self):
         """Creates the main UI."""
-        # Background image (if set)
-        self._setup_background()
-
         # Main container - always transparent to show background
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
@@ -1449,6 +1462,10 @@ class WranglerMasterApp(ctk.CTk):
         # Apply initial foreground opacity
         self._apply_foreground_opacity()
 
+        # Setup background AFTER all widgets are created, so it can be properly lowered
+        self.update_idletasks()  # Ensure window size is known
+        self._setup_background()
+
     def _setup_background(self):
         """Sets up background image if configured."""
         if self.app_settings.background_image and os.path.exists(self.app_settings.background_image):
@@ -1456,9 +1473,13 @@ class WranglerMasterApp(ctk.CTk):
                 # Load and cache the PIL image (original size)
                 self._cached_bg_pil = self._load_background_with_opacity()
                 if self._cached_bg_pil:
-                    # Get initial size
-                    width = max(self.winfo_width(), 950)
-                    height = max(self.winfo_height(), 750)
+                    # Get initial size - use actual window size or defaults
+                    width = self.winfo_width()
+                    height = self.winfo_height()
+                    if width < 100:
+                        width = 950
+                    if height < 100:
+                        height = 750
 
                     # Resize cached image for display
                     resized = self._cached_bg_pil.resize((width, height), Image.Resampling.LANCZOS)
@@ -1468,11 +1489,21 @@ class WranglerMasterApp(ctk.CTk):
                         dark_image=resized,
                         size=(width, height)
                     )
-                    self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
+
+                    # Create the background label with transparent fg
+                    self.bg_label = ctk.CTkLabel(
+                        self,
+                        image=self.bg_image,
+                        text="",
+                        fg_color="transparent"
+                    )
                     self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
                     # CRITICAL: Lower the background behind all other widgets
+                    # Call lower() multiple times to ensure it's at the bottom
                     self.bg_label.lower()
+                    if hasattr(self, 'main_container'):
+                        self.bg_label.lower(self.main_container)
 
                     # Bind resize event to update background (debounced)
                     self.bind("<Configure>", self._on_resize)
@@ -1589,8 +1620,8 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Stop All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#1565c0",
-            hover_color="#0d47a1",
+            fg_color="#4f545c",
+            hover_color="#686d73",
             width=90,
             height=32,
             command=self._stop_all
@@ -1601,8 +1632,8 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Resume All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#1976d2",
-            hover_color="#1565c0",
+            fg_color="#5865f2",
+            hover_color="#4752c4",
             width=100,
             height=32,
             command=self._resume_all
@@ -1613,8 +1644,10 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Start All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#2196f3",
-            hover_color="#1976d2",
+            fg_color="#57f287",
+            hover_color="#46c46f",
+            text_color="#000000",
+            text_color_disabled="#666666",
             width=90,
             height=32,
             command=self._start_all
@@ -1766,14 +1799,12 @@ class WranglerMasterApp(ctk.CTk):
             self.bg_label = None
             self.bg_image = None
 
-        self._setup_background()
-
-        # Ensure background stays behind main container
-        if self.bg_label and hasattr(self, 'main_container'):
-            self.bg_label.lower()
-
-        # Apply foreground opacity
+        # Apply foreground opacity first
         self._apply_foreground_opacity()
+
+        # Then setup background (it will be lowered properly)
+        self.update_idletasks()
+        self._setup_background()
 
         self._set_status("Settings saved. Theme/font changes require restart.")
 
