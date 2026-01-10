@@ -57,12 +57,33 @@ from tkinter import messagebox, filedialog
 # Configuration
 # =============================================================================
 
-CONFIG_FILE = "wrangler_config.json"
+CONFIG_FILENAME = "wrangler_config.json"
 POLL_INTERVAL_MS = 10000  # 10 seconds
 REQUEST_TIMEOUT = 5  # seconds
 
-# Get the directory where this script is located
-SCRIPT_DIR = Path(__file__).parent.resolve()
+
+def get_base_path() -> Path:
+    """Get the base path for resources, handling PyInstaller bundles."""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # Running as a PyInstaller bundle
+        return Path(sys._MEIPASS)
+    else:
+        # Running as a script
+        return Path(__file__).parent.resolve()
+
+
+def get_config_dir() -> Path:
+    """Get the directory for config files (writable location)."""
+    if getattr(sys, 'frozen', False):
+        # When frozen, use the executable's directory for config
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent.resolve()
+
+
+# Get the directory where resources are located
+SCRIPT_DIR = get_base_path()
+CONFIG_DIR = get_config_dir()
 THEMES_DIR = SCRIPT_DIR / "themes"
 BACKGROUNDS_DIR = SCRIPT_DIR / "backgrounds"
 
@@ -1953,20 +1974,22 @@ class WranglerMasterApp(ctk.CTk):
             "default_json_path": self.default_json_path
         }
 
+        config_path = CONFIG_DIR / CONFIG_FILENAME
         try:
-            with open(CONFIG_FILE, "w") as f:
+            with open(config_path, "w") as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save config: {e}")
 
     def _load_config(self):
         """Loads configuration from file."""
-        if not os.path.exists(CONFIG_FILE):
+        config_path = CONFIG_DIR / CONFIG_FILENAME
+        if not config_path.exists():
             self._refresh_panels()
             return
 
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(config_path, "r") as f:
                 config = json.load(f)
 
             self.instances = [
@@ -1986,7 +2009,7 @@ class WranglerMasterApp(ctk.CTk):
 
     def _save_app_settings(self):
         """Saves application settings."""
-        settings_file = SCRIPT_DIR / "app_settings.json"
+        settings_file = CONFIG_DIR / "app_settings.json"
         settings = {
             "appearance_mode": self.app_settings.appearance_mode,
             "color_theme": self.app_settings.color_theme,
@@ -2001,7 +2024,7 @@ class WranglerMasterApp(ctk.CTk):
 
     def _load_app_settings(self):
         """Loads application settings."""
-        settings_file = SCRIPT_DIR / "app_settings.json"
+        settings_file = CONFIG_DIR / "app_settings.json"
 
         if not settings_file.exists():
             return
