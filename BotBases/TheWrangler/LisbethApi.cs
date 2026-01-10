@@ -380,7 +380,10 @@ namespace TheWrangler
         public bool HasIncompleteOrders()
         {
             var incomplete = GetIncompleteOrders();
-            return !string.IsNullOrWhiteSpace(incomplete) && incomplete != "{}";
+            // Check for empty object "{}" or empty array "[]" or whitespace
+            return !string.IsNullOrWhiteSpace(incomplete)
+                && incomplete != "{}"
+                && incomplete != "[]";
         }
 
         /// <summary>
