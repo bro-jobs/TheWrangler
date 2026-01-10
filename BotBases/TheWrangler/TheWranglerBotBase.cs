@@ -76,6 +76,9 @@ namespace TheWrangler
         // Dialog helper to automatically close Resume dialogs that Lisbeth shows
         private ExpansionDialogHelper _dialogHelper;
 
+        // Timestamp when order execution started - used to limit dialog closing window
+        private DateTime? _orderStartTime;
+
         #endregion
 
         #region BotBase Properties
@@ -167,6 +170,7 @@ namespace TheWrangler
 
             // Clear any pending async operations
             _pendingGoHomeCallback = null;
+            _orderStartTime = null;
 
             // Full controller cleanup (resets state, stops Lisbeth)
             _controller.OnBotStopped();
@@ -211,9 +215,12 @@ namespace TheWrangler
             }
 
             // Automatically close any Resume/Expansion dialogs that Lisbeth shows
-            // These dialogs appear when Lisbeth detects incomplete orders but we handle
-            // resume ourselves, so we just dismiss them
-            TryCloseResumeDialogs();
+            // Only do this within 5 seconds of starting an order, to avoid closing
+            // dialogs that belong to other RebornBuddy instances
+            if (_orderStartTime.HasValue && (DateTime.Now - _orderStartTime.Value).TotalSeconds < 5)
+            {
+                TryCloseResumeDialogs();
+            }
 
             // Process any pending debug commands (runs on bot thread for memory access)
             while (_controller.TryGetDebugCommand(out var debugCmd))
@@ -287,6 +294,9 @@ namespace TheWrangler
         private async Task ExecuteOrderAsync()
         {
             Log("Executing pending order...");
+
+            // Record start time for dialog closing window
+            _orderStartTime = DateTime.Now;
 
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
