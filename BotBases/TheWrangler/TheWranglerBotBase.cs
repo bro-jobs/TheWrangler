@@ -151,12 +151,22 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot stops running.
-        /// Reset controller state and notify UI.
+        /// Performs full cleanup of controller state, Lisbeth resources, and behavior tree.
         /// </summary>
         public override void Stop()
         {
-            Log("TheWrangler stopped.");
+            Log("TheWrangler stopping - beginning cleanup...");
+
+            // Reset startup stabilization flag for next start
+            _startupStabilized = false;
+
+            // Clear any pending async operations
+            _pendingGoHomeCallback = null;
+
+            // Full controller cleanup (resets state, stops Lisbeth)
             _controller.OnBotStopped();
+
+            Log("TheWrangler stopped.");
         }
 
         #endregion
