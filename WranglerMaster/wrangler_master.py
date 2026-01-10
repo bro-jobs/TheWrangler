@@ -1384,6 +1384,7 @@ class WranglerMasterApp(ctk.CTk):
         # Background image
         self.bg_image = None
         self.bg_label = None
+        self._bg_photo = None  # Keep reference to prevent garbage collection
         self._cached_bg_pil = None  # Cache the processed PIL image
         self._resize_job = None  # For debouncing resize events
 
@@ -1416,38 +1417,21 @@ class WranglerMasterApp(ctk.CTk):
             weight=weight
         )
 
-    def get_fg_color(self, base_dark: str = "#2b2b2b", base_light: str = "#dbdbdb") -> tuple:
-        """Returns foreground color with transparency applied.
+    def get_fg_color(self, base_dark: str = "#2b2b2b", base_light: str = "#dbdbdb") -> str:
+        """Returns foreground color based on transparency setting.
 
-        background_opacity controls how transparent the foreground is:
-        - 1.0 = fully transparent foreground (background fully visible)
-        - 0.0 = fully opaque foreground (background not visible)
+        Since tkinter doesn't support true alpha, we use:
+        - "transparent" when user wants background visible (high transparency)
+        - Normal colors when user wants opaque UI (low transparency)
         """
         transparency = self.app_settings.background_opacity
 
-        if transparency >= 0.99:
+        # If transparency is above 50%, make frames transparent to show background
+        if transparency > 0.5:
             return "transparent"
 
-        if transparency <= 0.01:
-            return (base_light, base_dark)
-
-        # Calculate semi-transparent color by reducing color intensity
-        # Higher transparency = darker/more transparent color
-        alpha = 1.0 - transparency  # Invert: high transparency = low alpha
-
-        def blend_color(hex_color: str, a: float) -> str:
-            r = int(hex_color[1:3], 16)
-            g = int(hex_color[3:5], 16)
-            b = int(hex_color[5:7], 16)
-            # Reduce intensity based on alpha
-            r = int(r * a)
-            g = int(g * a)
-            b = int(b * a)
-            return f"#{r:02x}{g:02x}{b:02x}"
-
-        dark_blended = blend_color(base_dark, alpha)
-        light_blended = blend_color(base_light, alpha)
-        return (light_blended, dark_blended)
+        # Otherwise use the theme's default colors (return None to use defaults)
+        return None  # Will use theme default
 
     def _create_ui(self):
         """Creates the main UI."""
@@ -1484,26 +1468,16 @@ class WranglerMasterApp(ctk.CTk):
                     # Resize cached image for display
                     resized = self._cached_bg_pil.resize((width, height), Image.Resampling.LANCZOS)
 
-                    self.bg_image = ctk.CTkImage(
-                        light_image=resized,
-                        dark_image=resized,
-                        size=(width, height)
-                    )
+                    # Use ImageTk for raw tkinter compatibility
+                    self._bg_photo = ImageTk.PhotoImage(resized)
 
-                    # Create the background label with transparent fg
-                    self.bg_label = ctk.CTkLabel(
-                        self,
-                        image=self.bg_image,
-                        text="",
-                        fg_color="transparent"
-                    )
+                    # Use raw tkinter Label for better stacking control
+                    import tkinter as tk
+                    self.bg_label = tk.Label(self, image=self._bg_photo, bd=0, highlightthickness=0)
                     self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-                    # CRITICAL: Lower the background behind all other widgets
-                    # Call lower() multiple times to ensure it's at the bottom
+                    # Lower it to the very bottom of the stacking order
                     self.bg_label.lower()
-                    if hasattr(self, 'main_container'):
-                        self.bg_label.lower(self.main_container)
 
                     # Bind resize event to update background (debounced)
                     self.bind("<Configure>", self._on_resize)
@@ -1551,12 +1525,9 @@ class WranglerMasterApp(ctk.CTk):
             # Resize from cached PIL image (fast)
             resized = self._cached_bg_pil.resize((width, height), Image.Resampling.LANCZOS)
 
-            self.bg_image = ctk.CTkImage(
-                light_image=resized,
-                dark_image=resized,
-                size=(width, height)
-            )
-            self.bg_label.configure(image=self.bg_image)
+            # Update the PhotoImage
+            self._bg_photo = ImageTk.PhotoImage(resized)
+            self.bg_label.configure(image=self._bg_photo)
         except Exception:
             pass
 
@@ -1689,13 +1660,24 @@ class WranglerMasterApp(ctk.CTk):
         """Applies the foreground opacity setting to UI elements."""
         fg_color = self.get_fg_color()
 
+        # Determine the actual color to use
+        if fg_color == "transparent":
+            toolbar_color = "transparent"
+            scroll_color = "transparent"
+            status_color = "transparent"
+        else:
+            # Use Discord-style dark colors for opaque mode
+            toolbar_color = ("#dbdbdb", "#2f3136")
+            scroll_color = ("#dbdbdb", "#2f3136")
+            status_color = ("#dbdbdb", "#202225")
+
         # Update main UI frames
         if hasattr(self, 'toolbar'):
-            self.toolbar.configure(fg_color=fg_color)
+            self.toolbar.configure(fg_color=toolbar_color)
         if hasattr(self, 'panels_scroll'):
-            self.panels_scroll.configure(fg_color=fg_color)
+            self.panels_scroll.configure(fg_color=scroll_color)
         if hasattr(self, 'status_frame'):
-            self.status_frame.configure(fg_color=fg_color)
+            self.status_frame.configure(fg_color=status_color)
 
     def _refresh_panels(self):
         """Recreates all instance panels."""
@@ -1794,6 +1776,7 @@ class WranglerMasterApp(ctk.CTk):
 
         # Clear cached background and update
         self._cached_bg_pil = None
+        self._bg_photo = None
         if self.bg_label:
             self.bg_label.destroy()
             self.bg_label = None
