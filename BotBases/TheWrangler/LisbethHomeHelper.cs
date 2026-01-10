@@ -282,15 +282,48 @@ namespace TheWrangler
                     var enabled = home["Enabled"]?.Value<bool>() ?? false;
                     if (!enabled) continue;
 
+                    // Log available fields for debugging
+                    var fields = string.Join(", ", home.Properties().Select(p => p.Name));
+                    Log($"Home entry fields: {fields}");
+
+                    // Try different possible field names for coordinates
+                    float x = 0, y = 0, z = 0;
+
+                    // Try direct X, Y, Z
+                    if (home["X"] != null)
+                    {
+                        x = home["X"].Value<float>();
+                        y = home["Y"]?.Value<float>() ?? 0;
+                        z = home["Z"]?.Value<float>() ?? 0;
+                    }
+                    // Try Position object with X, Y, Z
+                    else if (home["Position"] != null)
+                    {
+                        var pos = home["Position"];
+                        x = pos["X"]?.Value<float>() ?? 0;
+                        y = pos["Y"]?.Value<float>() ?? 0;
+                        z = pos["Z"]?.Value<float>() ?? 0;
+                    }
+                    // Try Location object
+                    else if (home["Location"] != null)
+                    {
+                        var loc = home["Location"];
+                        x = loc["X"]?.Value<float>() ?? 0;
+                        y = loc["Y"]?.Value<float>() ?? 0;
+                        z = loc["Z"]?.Value<float>() ?? 0;
+                    }
+
                     var entry = new HomeEntry
                     {
-                        ZoneId = home["Zone"]?.Value<uint>() ?? 0,
+                        ZoneId = home["Zone"]?.Value<uint>() ?? home["ZoneId"]?.Value<uint>() ?? 0,
                         Area = home["Area"]?.Value<string>() ?? "Unknown",
-                        X = home["X"]?.Value<float>() ?? 0,
-                        Y = home["Y"]?.Value<float>() ?? 0,
-                        Z = home["Z"]?.Value<float>() ?? 0,
+                        X = x,
+                        Y = y,
+                        Z = z,
                         Enabled = true
                     };
+
+                    Log($"Parsed home: Zone={entry.ZoneId}, Pos=<{x}, {y}, {z}>");
 
                     if (entry.ZoneId > 0)
                     {

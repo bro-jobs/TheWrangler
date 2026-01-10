@@ -572,7 +572,7 @@ namespace TheWrangler
             this.txtDebugCommands.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
             this.txtDebugCommands.Size = new System.Drawing.Size(502, 60);
             this.txtDebugCommands.TabIndex = 0;
-            this.txtDebugCommands.Text = "/test1 [job] - Change class (e.g. /test1 Carpenter) + auto-confirm dialogs\n/test2 [id] - Teleport (e.g. /test2 8 for Limsa, /test2 2 for Gridania)\n/test3 - Navigation test (move forward)\n/test4 - List nearby NPCs (requires bot running)\n/unlock - Check DoH/DoL unlock status (requires bot running)\n/stop - Stop movement\n/help - Show all commands";
+            this.txtDebugCommands.Text = "/test1 [job] - Change class (e.g. /test1 Carpenter) + auto-confirm dialogs\n/test2 [id] - Teleport (e.g. /test2 8 for Limsa, /test2 2 for Gridania)\n/test3 - Navigation test (move forward)\n/test4 - List nearby NPCs (requires bot running)\n/test5 - Go to Lisbeth home (requires bot running)\n/unlock - Check DoH/DoL unlock status (requires bot running)\n/stop - Stop movement\n/help - Show all commands";
 
             //
             // txtDebugCommand - Debug command input
