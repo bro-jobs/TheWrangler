@@ -73,6 +73,12 @@ namespace TheWrangler
         // is first initialized and the coroutine system isn't fully stable yet.
         private int _startupTickCount;
 
+        // Dialog helper to automatically close Resume dialogs that Lisbeth shows
+        private ExpansionDialogHelper _dialogHelper;
+
+        // Timestamp when order execution started - used to limit dialog closing window
+        private DateTime? _orderStartTime;
+
         #endregion
 
         #region BotBase Properties
@@ -164,6 +170,7 @@ namespace TheWrangler
 
             // Clear any pending async operations
             _pendingGoHomeCallback = null;
+            _orderStartTime = null;
 
             // Full controller cleanup (resets state, stops Lisbeth)
             _controller.OnBotStopped();
@@ -205,6 +212,14 @@ namespace TheWrangler
                 _startupTickCount++;
                 await Coroutine.Yield();
                 return false;
+            }
+
+            // Automatically close any Resume/Expansion dialogs that Lisbeth shows
+            // Only do this within 5 seconds of starting an order, to avoid closing
+            // dialogs that belong to other RebornBuddy instances
+            if (_orderStartTime.HasValue && (DateTime.Now - _orderStartTime.Value).TotalSeconds < 5)
+            {
+                TryCloseResumeDialogs();
             }
 
             // Process any pending debug commands (runs on bot thread for memory access)
@@ -279,6 +294,9 @@ namespace TheWrangler
         private async Task ExecuteOrderAsync()
         {
             Log("Executing pending order...");
+
+            // Record start time for dialog closing window
+            _orderStartTime = DateTime.Now;
 
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
@@ -666,6 +684,51 @@ namespace TheWrangler
         /// Gets the current remote server port.
         /// </summary>
         public int RemoteServerPort => _remoteServer?.Port ?? 0;
+
+        #endregion
+
+        #region Dialog Handling
+
+        /// <summary>
+        /// Attempts to close any Resume/Expansion dialogs that Lisbeth shows.
+        /// These dialogs appear when Lisbeth detects incomplete orders on startup,
+        /// but we handle resume ourselves, so we just dismiss them.
+        /// </summary>
+        private void TryCloseResumeDialogs()
+        {
+            try
+            {
+                // Initialize the dialog helper on first use
+                if (_dialogHelper == null)
+                {
+                    _dialogHelper = new ExpansionDialogHelper();
+                    if (!_dialogHelper.Initialize())
+                    {
+                        Log("Warning: Could not initialize dialog helper.");
+                        return;
+                    }
+                }
+
+                // Check if there's a dialog and close it
+                if (_dialogHelper.HasExpansionDialog())
+                {
+                    int closed = _dialogHelper.TryCloseAllResumeDialogs();
+                    if (closed > 0)
+                    {
+                        Log($"Automatically closed {closed} Resume dialog(s).");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Don't spam logs - just silently fail
+                // Dialog closing is best-effort
+                if (ex.GetType().Name != "InvalidOperationException")
+                {
+                    Log($"Error closing resume dialog: {ex.Message}");
+                }
+            }
+        }
 
         #endregion
 

@@ -128,6 +128,25 @@ namespace TheWrangler
         /// </summary>
         public int TryClickAllExpansionDialogs()
         {
+            return TryClickButtonOnAllDialogs(ButtonPosition.Leftmost); // Yes is leftmost
+        }
+
+        /// <summary>
+        /// Finds all Resume/Expansion dialogs and closes them.
+        /// Returns the number of dialogs that were successfully closed.
+        /// </summary>
+        public int TryCloseAllResumeDialogs()
+        {
+            return TryClickButtonOnAllDialogs(ButtonPosition.Middle); // Close is middle (index 1)
+        }
+
+        private enum ButtonPosition { Leftmost, Middle, Rightmost }
+
+        /// <summary>
+        /// Finds all dialogs and clicks the specified button on each one.
+        /// </summary>
+        private int TryClickButtonOnAllDialogs(ButtonPosition position)
+        {
             if (!_isInitialized && !Initialize())
                 return 0;
 
@@ -147,10 +166,10 @@ namespace TheWrangler
                         if (proc.MainWindowTitle == "Expansion" || proc.MainWindowTitle == "Resume")
                         {
                             var handle = proc.MainWindowHandle;
-                            if (handle != IntPtr.Zero && TryClickYesOnWindow(handle))
+                            if (handle != IntPtr.Zero && TryClickButtonOnWindow(handle, position))
                             {
                                 clickedCount++;
-                                Log($"Clicked Yes on Expansion dialog for PID {proc.Id}");
+                                Log($"Clicked {position} button on dialog for PID {proc.Id}");
                             }
                         }
                     }
@@ -165,16 +184,16 @@ namespace TheWrangler
                 if (currentProc.MainWindowTitle == "Expansion" || currentProc.MainWindowTitle == "Resume")
                 {
                     var handle = currentProc.MainWindowHandle;
-                    if (handle != IntPtr.Zero && TryClickYesOnWindow(handle))
+                    if (handle != IntPtr.Zero && TryClickButtonOnWindow(handle, position))
                     {
                         clickedCount++;
-                        Log($"Clicked Yes on Expansion dialog for current process");
+                        Log($"Clicked {position} button on dialog for current process");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log($"Error in TryClickAllExpansionDialogs: {ex.Message}");
+                Log($"Error in TryClickButtonOnAllDialogs: {ex.Message}");
             }
 
             return clickedCount;
@@ -214,9 +233,9 @@ namespace TheWrangler
         #region Private Methods
 
         /// <summary>
-        /// Attempts to click the Yes button on a specific window.
+        /// Attempts to click a button at the specified position on a specific window.
         /// </summary>
-        private bool TryClickYesOnWindow(IntPtr handle)
+        private bool TryClickButtonOnWindow(IntPtr handle, ButtonPosition position)
         {
             try
             {
@@ -245,10 +264,8 @@ namespace TheWrangler
                 if (_indexerProp == null)
                     _indexerProp = buttons.GetType().GetProperty("Item");
 
-                // Find the Yes button - it's the leftmost of the 3 bottom buttons
-                // We need to find buttons at the same Y position (bottom row) and pick the leftmost
-                object yesButton = null;
-                double minX = double.MaxValue;
+                // Collect all bottom row buttons with their X positions
+                var bottomButtons = new System.Collections.Generic.List<(object button, double x)>();
                 double bottomY = 0;
 
                 // First pass: find the bottom row Y coordinate (exclude title bar buttons)
@@ -273,7 +290,7 @@ namespace TheWrangler
                     }
                 }
 
-                // Second pass: find the leftmost button at the bottom Y
+                // Second pass: collect all buttons at the bottom Y
                 for (int i = 0; i < count; i++)
                 {
                     var button = _indexerProp.GetValue(buttons, new object[] { i });
@@ -285,25 +302,51 @@ namespace TheWrangler
                         var y = (double)bounds.GetType().GetProperty("Y").GetValue(bounds);
 
                         // Check if this button is on the bottom row (within 10px tolerance)
-                        if (Math.Abs(y - bottomY) < 10 && x < minX)
+                        if (Math.Abs(y - bottomY) < 10)
                         {
-                            minX = x;
-                            yesButton = button;
+                            bottomButtons.Add((button, x));
                         }
                     }
                 }
 
-                if (yesButton == null)
+                if (bottomButtons.Count == 0)
                 {
-                    Log("Could not identify Yes button by position.");
+                    Log("Could not find any bottom row buttons.");
+                    return false;
+                }
+
+                // Sort by X position (left to right)
+                bottomButtons.Sort((a, b) => a.x.CompareTo(b.x));
+
+                // Select the appropriate button based on position
+                object targetButton = null;
+                switch (position)
+                {
+                    case ButtonPosition.Leftmost:
+                        targetButton = bottomButtons[0].button;
+                        break;
+                    case ButtonPosition.Middle:
+                        if (bottomButtons.Count >= 2)
+                            targetButton = bottomButtons[1].button;
+                        else
+                            targetButton = bottomButtons[0].button;
+                        break;
+                    case ButtonPosition.Rightmost:
+                        targetButton = bottomButtons[bottomButtons.Count - 1].button;
+                        break;
+                }
+
+                if (targetButton == null)
+                {
+                    Log($"Could not identify {position} button.");
                     return false;
                 }
 
                 // Click the button using InvokePattern
-                var pattern = _getPatternMethod.Invoke(yesButton, new object[] { _invokePattern });
+                var pattern = _getPatternMethod.Invoke(targetButton, new object[] { _invokePattern });
                 if (pattern == null)
                 {
-                    Log("Could not get InvokePattern from Yes button.");
+                    Log($"Could not get InvokePattern from {position} button.");
                     return false;
                 }
 
@@ -314,7 +357,7 @@ namespace TheWrangler
             }
             catch (Exception ex)
             {
-                Log($"Error in TryClickYesOnWindow: {ex.Message}");
+                Log($"Error in TryClickButtonOnWindow: {ex.Message}");
                 return false;
             }
         }
