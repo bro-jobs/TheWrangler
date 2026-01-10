@@ -3,22 +3,26 @@
 Wrangler Master Control Program
 ===============================
 
-A GUI application to control multiple TheWrangler instances across a local network.
+A modern GUI application to control multiple TheWrangler instances across a local network.
 
 Features:
+- Beautiful CustomTkinter UI with theme support
 - Display Wrangler instances as status panels
 - Start/Stop individual instances
 - Master Start All / Stop All controls
 - Auto-refresh status every 10 seconds
 - Save/Load instance configuration
+- Custom background image support
+- Theme customization (blue, dark-blue, green, wrangler)
 
 Usage:
     python wrangler_master.py
 
 Requirements:
     - Python 3.6+
-    - tkinter (usually included with Python)
+    - customtkinter (pip install customtkinter)
     - requests library (pip install requests)
+    - Pillow (pip install Pillow)
 """
 
 import json
@@ -38,8 +42,15 @@ except ImportError:
     print("Install it with: pip install requests")
     sys.exit(1)
 
-import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog, filedialog
+try:
+    import customtkinter as ctk
+    from PIL import Image, ImageTk
+except ImportError:
+    print("ERROR: 'customtkinter' and 'Pillow' libraries are required.")
+    print("Install them with: pip install customtkinter Pillow")
+    sys.exit(1)
+
+from tkinter import messagebox, filedialog
 
 
 # =============================================================================
@@ -49,6 +60,19 @@ from tkinter import ttk, messagebox, simpledialog, filedialog
 CONFIG_FILE = "wrangler_config.json"
 POLL_INTERVAL_MS = 10000  # 10 seconds
 REQUEST_TIMEOUT = 5  # seconds
+
+# Get the directory where this script is located
+SCRIPT_DIR = Path(__file__).parent.resolve()
+THEMES_DIR = SCRIPT_DIR / "themes"
+BACKGROUNDS_DIR = SCRIPT_DIR / "backgrounds"
+
+# Available themes
+AVAILABLE_THEMES = ["blue", "dark-blue", "green"]
+
+# Check for custom wrangler theme
+WRANGLER_THEME_PATH = THEMES_DIR / "wrangler_theme.json"
+if WRANGLER_THEME_PATH.exists():
+    AVAILABLE_THEMES.append("wrangler")
 
 
 @dataclass
@@ -113,6 +137,14 @@ class InstanceStatus:
     character_name: str = "Unknown"
     world_name: str = "Unknown"
     runtime_seconds: int = 0
+
+
+@dataclass
+class AppSettings:
+    """Application-wide settings."""
+    appearance_mode: str = "dark"  # "light", "dark", "system"
+    color_theme: str = "wrangler"  # "blue", "dark-blue", "green", "wrangler"
+    background_image: str = ""  # Path to custom background image
 
 
 # =============================================================================
@@ -272,10 +304,10 @@ class WranglerClient:
 # Instance Panel Widget
 # =============================================================================
 
-class InstancePanel(ttk.Frame):
+class InstancePanel(ctk.CTkFrame):
     """A panel widget displaying a single Wrangler instance."""
 
-    # Color schemes
+    # Color schemes for status indicators
     COLORS = {
         "unreachable": "#666666",
         "stopped": "#95a5a6",
@@ -288,7 +320,7 @@ class InstancePanel(ttk.Frame):
                  on_run: Callable, on_stop: Callable, on_resume: Callable,
                  on_advanced_run: Callable, on_remove: Callable,
                  on_settings_changed: Callable = None):
-        super().__init__(parent, padding=10)
+        super().__init__(parent, corner_radius=10)
 
         self.instance = instance
         self.status = InstanceStatus()
@@ -304,198 +336,182 @@ class InstancePanel(ttk.Frame):
 
     def _create_widgets(self):
         """Creates all child widgets."""
-        # Main container with border
-        self.container = tk.Frame(self, bg="#2d2d30", relief=tk.RAISED, bd=2)
-
         # Header with name and address
-        self.header_frame = tk.Frame(self.container, bg="#2d2d30")
-        self.name_label = tk.Label(
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+
+        self.name_label = ctk.CTkLabel(
             self.header_frame,
             text=self.instance.name,
-            font=("Segoe UI", 12, "bold"),
-            fg="white",
-            bg="#2d2d30"
-        )
-        self.address_label = tk.Label(
-            self.header_frame,
-            text=f"{self.instance.host}:{self.instance.port}",
-            font=("Segoe UI", 9),
-            fg="#888888",
-            bg="#2d2d30"
+            font=ctk.CTkFont(size=14, weight="bold")
         )
 
-        # Status indicator
-        self.status_frame = tk.Frame(self.container, bg="#2d2d30")
-        self.status_indicator = tk.Label(
+        self.address_label = ctk.CTkLabel(
+            self.header_frame,
+            text=f"{self.instance.host}:{self.instance.port}",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        )
+
+        # Status indicator frame
+        self.status_frame = ctk.CTkFrame(self, fg_color="transparent")
+
+        self.status_indicator = ctk.CTkLabel(
             self.status_frame,
             text="\u25CF",  # Filled circle
-            font=("Segoe UI", 16),
-            fg=self.COLORS["unreachable"],
-            bg="#2d2d30"
+            font=ctk.CTkFont(size=18),
+            text_color=self.COLORS["unreachable"]
         )
-        self.status_text = tk.Label(
+
+        self.status_text = ctk.CTkLabel(
             self.status_frame,
             text="Unknown",
-            font=("Segoe UI", 10),
-            fg="#cccccc",
-            bg="#2d2d30",
-            width=12,
+            font=ctk.CTkFont(size=12),
+            width=100,
             anchor="w"
         )
 
         # Character info label
-        self.character_label = tk.Label(
-            self.container,
+        self.character_label = ctk.CTkLabel(
+            self,
             text="Character: Unknown",
-            font=("Segoe UI", 9),
-            fg="#aaaaaa",
-            bg="#2d2d30",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
             anchor="w"
         )
 
         # Runtime label
-        self.runtime_label = tk.Label(
-            self.container,
+        self.runtime_label = ctk.CTkLabel(
+            self,
             text="",
-            font=("Segoe UI", 9),
-            fg="#2ecc71",
-            bg="#2d2d30",
+            font=ctk.CTkFont(size=11),
+            text_color="#2ecc71",
             anchor="w"
         )
 
         # Current file label
-        self.file_label = tk.Label(
-            self.container,
+        self.file_label = ctk.CTkLabel(
+            self,
             text="File: None",
-            font=("Segoe UI", 9),
-            fg="#aaaaaa",
-            bg="#2d2d30",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
             anchor="w"
         )
 
         # Button frame
-        self.button_frame = tk.Frame(self.container, bg="#2d2d30")
+        self.button_frame = ctk.CTkFrame(self, fg_color="transparent")
 
-        self.run_btn = tk.Button(
+        self.run_btn = ctk.CTkButton(
             self.button_frame,
             text="Run",
-            font=("Segoe UI", 9, "bold"),
-            bg="#2ecc71",
-            fg="white",
-            activebackground="#27ae60",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            width=70,
+            height=28,
             command=self._on_run_click
         )
 
-        self.resume_btn = tk.Button(
+        self.resume_btn = ctk.CTkButton(
             self.button_frame,
             text="Resume",
-            font=("Segoe UI", 9, "bold"),
-            bg="#3498db",
-            fg="white",
-            activebackground="#2980b9",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#3498db",
+            hover_color="#2980b9",
+            width=70,
+            height=28,
             command=self._on_resume_click
         )
 
-        self.stop_btn = tk.Button(
+        self.stop_btn = ctk.CTkButton(
             self.button_frame,
             text="Stop",
-            font=("Segoe UI", 9, "bold"),
-            bg="#e67e22",
-            fg="white",
-            activebackground="#d35400",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#e67e22",
+            hover_color="#d35400",
+            width=70,
+            height=28,
             command=self._on_stop_click
         )
 
-        self.advanced_btn = tk.Button(
+        self.advanced_btn = ctk.CTkButton(
             self.button_frame,
             text="Advanced",
-            font=("Segoe UI", 9),
-            bg="#9b59b6",
-            fg="white",
-            activebackground="#8e44ad",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=8,
+            font=ctk.CTkFont(size=11),
+            fg_color="#9b59b6",
+            hover_color="#8e44ad",
+            width=70,
+            height=28,
             command=self._on_advanced_click
         )
 
-        self.remove_btn = tk.Button(
+        self.remove_btn = ctk.CTkButton(
             self.button_frame,
             text="X",
-            font=("Segoe UI", 8, "bold"),
-            bg="#e74c3c",
-            fg="white",
-            activebackground="#c0392b",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=2,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#e74c3c",
+            hover_color="#c0392b",
+            width=28,
+            height=28,
             command=self._on_remove_click
         )
 
         # Menu button (three dots)
-        self.menu_btn = tk.Button(
+        self.menu_btn = ctk.CTkButton(
             self.button_frame,
             text="\u22EE",  # Vertical ellipsis
-            font=("Segoe UI", 10),
-            bg="#555555",
-            fg="white",
-            activebackground="#666666",
-            activeforeground="white",
-            relief=tk.FLAT,
-            width=2,
+            font=ctk.CTkFont(size=14),
+            fg_color="#555555",
+            hover_color="#666666",
+            width=28,
+            height=28,
             command=self._show_menu
         )
 
-        # Create popup menu
-        self.popup_menu = tk.Menu(self, tearoff=0, bg="#2d2d30", fg="white",
-                                   activebackground="#3d3d40", activeforeground="white")
-        self.go_home_var = tk.BooleanVar(value=self.instance.go_home_after_session)
-        self.popup_menu.add_checkbutton(
-            label="Go Home after session",
+        # Go home checkbox
+        self.go_home_var = ctk.BooleanVar(value=self.instance.go_home_after_session)
+        self.go_home_check = ctk.CTkCheckBox(
+            self,
+            text="Go Home after session",
+            font=ctk.CTkFont(size=11),
             variable=self.go_home_var,
-            command=self._on_go_home_toggle
+            command=self._on_go_home_toggle,
+            height=20,
+            checkbox_width=18,
+            checkbox_height=18
         )
 
     def _layout_widgets(self):
         """Arranges widgets in the panel."""
-        self.container.pack(fill=tk.BOTH, expand=True)
-
         # Header
-        self.header_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self.name_label.pack(side=tk.LEFT)
-        self.address_label.pack(side=tk.RIGHT)
+        self.header_frame.pack(fill="x", padx=12, pady=(12, 6))
+        self.name_label.pack(side="left")
+        self.address_label.pack(side="right")
 
         # Status
-        self.status_frame.pack(fill=tk.X, padx=10, pady=5)
-        self.status_indicator.pack(side=tk.LEFT)
-        self.status_text.pack(side=tk.LEFT, padx=5)
+        self.status_frame.pack(fill="x", padx=12, pady=4)
+        self.status_indicator.pack(side="left")
+        self.status_text.pack(side="left", padx=6)
 
         # Character info
-        self.character_label.pack(fill=tk.X, padx=10, pady=1)
+        self.character_label.pack(fill="x", padx=12, pady=1)
 
         # Runtime
-        self.runtime_label.pack(fill=tk.X, padx=10, pady=1)
+        self.runtime_label.pack(fill="x", padx=12, pady=1)
 
         # File
-        self.file_label.pack(fill=tk.X, padx=10, pady=2)
+        self.file_label.pack(fill="x", padx=12, pady=2)
+
+        # Go home checkbox
+        self.go_home_check.pack(fill="x", padx=12, pady=4)
 
         # Buttons
-        self.button_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
-        self.run_btn.pack(side=tk.LEFT, padx=2)
-        self.resume_btn.pack(side=tk.LEFT, padx=2)
-        self.stop_btn.pack(side=tk.LEFT, padx=2)
-        self.advanced_btn.pack(side=tk.LEFT, padx=2)
-        self.menu_btn.pack(side=tk.RIGHT, padx=2)
-        self.remove_btn.pack(side=tk.RIGHT, padx=2)
+        self.button_frame.pack(fill="x", padx=12, pady=(6, 12))
+        self.run_btn.pack(side="left", padx=2)
+        self.resume_btn.pack(side="left", padx=2)
+        self.stop_btn.pack(side="left", padx=2)
+        self.advanced_btn.pack(side="left", padx=2)
+        self.menu_btn.pack(side="right", padx=2)
+        self.remove_btn.pack(side="right", padx=2)
 
     def update_status(self, status: InstanceStatus):
         """Updates the panel display with new status."""
@@ -522,15 +538,15 @@ class InstancePanel(ttk.Frame):
             state_text = status.state.capitalize() if status.state else "Unknown"
 
         # Update display
-        self.status_indicator.config(fg=color)
-        self.status_text.config(text=state_text)
+        self.status_indicator.configure(text_color=color)
+        self.status_text.configure(text=state_text)
 
         # Update character label
         if status.reachable and status.character_name != "Unknown":
             char_text = f"{status.character_name} @ {status.world_name}"
-            self.character_label.config(text=char_text, fg="#cccccc")
+            self.character_label.configure(text=char_text, text_color=("gray40", "gray60"))
         else:
-            self.character_label.config(text="Character: Unknown", fg="#666666")
+            self.character_label.configure(text="Character: Unknown", text_color="gray")
 
         # Update runtime label
         if status.is_executing and status.runtime_seconds > 0:
@@ -542,15 +558,15 @@ class InstancePanel(ttk.Frame):
                 runtime_text = f"Runtime: {minutes}m {seconds}s"
             else:
                 runtime_text = f"Runtime: {seconds}s"
-            self.runtime_label.config(text=runtime_text, fg="#2ecc71")
+            self.runtime_label.configure(text=runtime_text)
         else:
-            self.runtime_label.config(text="", fg="#2ecc71")
+            self.runtime_label.configure(text="")
 
         # Update file label
         file_text = status.current_file if status.current_file else "None"
         if len(file_text) > 30:
             file_text = "..." + file_text[-27:]
-        self.file_label.config(text=f"File: {file_text}")
+        self.file_label.configure(text=f"File: {file_text}")
 
         # Update button states
         can_run = status.reachable and status.state in ("idle", "stopped")
@@ -558,10 +574,10 @@ class InstancePanel(ttk.Frame):
         can_stop = status.reachable and status.is_executing
         can_advanced = status.reachable and status.state in ("idle", "stopped")
 
-        self.run_btn.config(state=tk.NORMAL if can_run else tk.DISABLED)
-        self.resume_btn.config(state=tk.NORMAL if can_resume else tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL if can_stop else tk.DISABLED)
-        self.advanced_btn.config(state=tk.NORMAL if can_advanced else tk.DISABLED)
+        self.run_btn.configure(state="normal" if can_run else "disabled")
+        self.resume_btn.configure(state="normal" if can_resume else "disabled")
+        self.stop_btn.configure(state="normal" if can_stop else "disabled")
+        self.advanced_btn.configure(state="normal" if can_advanced else "disabled")
 
     def _on_run_click(self):
         """Handles Run button click."""
@@ -584,11 +600,14 @@ class InstancePanel(ttk.Frame):
         self.on_remove(self.instance)
 
     def _show_menu(self):
-        """Shows the popup menu."""
-        # Position menu near the button
-        x = self.menu_btn.winfo_rootx()
-        y = self.menu_btn.winfo_rooty() + self.menu_btn.winfo_height()
-        self.popup_menu.post(x, y)
+        """Shows a simple info dialog for now."""
+        messagebox.showinfo(
+            "Instance Info",
+            f"Name: {self.instance.name}\n"
+            f"Host: {self.instance.host}\n"
+            f"Port: {self.instance.port}\n"
+            f"Go Home: {'Yes' if self.instance.go_home_after_session else 'No'}"
+        )
 
     def _on_go_home_toggle(self):
         """Handles Go Home checkbox toggle."""
@@ -601,28 +620,26 @@ class InstancePanel(ttk.Frame):
 # Advanced Run Dialog
 # =============================================================================
 
-
-class AdvancedRunDialog(tk.Toplevel):
+class AdvancedRunDialog(ctk.CTkToplevel):
     """Dialog for configuring advanced run options (none, timer, or schedule mode)."""
 
     def __init__(self, parent, instance_name: str, has_incomplete_orders: bool = False,
                  existing_config: Optional[AdvancedRunConfig] = None):
         super().__init__(parent)
         self.title(f"Advanced Run - {instance_name}")
-        self.geometry("450x450")
-        self.minsize(450, 450)
+        self.geometry("480x520")
+        self.minsize(480, 520)
         self.resizable(True, True)
-        self.configure(bg="#2d2d30")
 
         self.result: Optional[AdvancedRunConfig] = None
-        self.save_only: bool = False  # True if user clicked Save instead of Start
+        self.save_only: bool = False
         self.has_incomplete_orders = has_incomplete_orders
 
         # Load existing config or use defaults
         self.config = existing_config or AdvancedRunConfig()
 
-        # Mode variable - load from existing config
-        self.mode_var = tk.StringVar(value=self.config.mode)
+        # Mode variable
+        self.mode_var = ctk.StringVar(value=self.config.mode)
 
         self._create_widgets()
 
@@ -638,258 +655,231 @@ class AdvancedRunDialog(tk.Toplevel):
 
     def _create_widgets(self):
         """Creates dialog widgets."""
-        # Button frame at the bottom (pack first so it stays at bottom when resizing)
-        btn_frame = tk.Frame(self, bg="#2d2d30")
-        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
-
-        tk.Button(
-            btn_frame, text="Cancel", font=("Segoe UI", 10),
-            bg="#666666", fg="white", relief=tk.FLAT, width=10,
-            command=self.destroy
-        ).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(
-            btn_frame, text="Start", font=("Segoe UI", 10, "bold"),
-            bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
-            command=self._on_start
-        ).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(
-            btn_frame, text="Save", font=("Segoe UI", 10),
-            bg="#3498db", fg="white", relief=tk.FLAT, width=10,
-            command=self._on_save
-        ).pack(side=tk.RIGHT, padx=5)
-
-        # Content frame that expands
-        content_frame = tk.Frame(self, bg="#2d2d30")
-        content_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        # Main scrollable frame
+        main_frame = ctk.CTkScrollableFrame(self)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         # Mode selection
-        mode_frame = tk.Frame(content_frame, bg="#2d2d30")
-        mode_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
-
-        tk.Label(
-            mode_frame, text="Run Mode:", font=("Segoe UI", 10, "bold"),
-            fg="white", bg="#2d2d30"
-        ).pack(side=tk.LEFT)
-
-        tk.Radiobutton(
-            mode_frame, text="None", variable=self.mode_var, value="none",
-            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white",
-            command=self._on_mode_change
-        ).pack(side=tk.LEFT, padx=10)
-
-        tk.Radiobutton(
-            mode_frame, text="Timer", variable=self.mode_var, value="timer",
-            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white",
-            command=self._on_mode_change
-        ).pack(side=tk.LEFT, padx=10)
-
-        tk.Radiobutton(
-            mode_frame, text="Schedule", variable=self.mode_var, value="schedule",
-            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white",
-            command=self._on_mode_change
-        ).pack(side=tk.LEFT)
-
-        # Resume option (applies to all modes)
-        resume_frame = tk.Frame(content_frame, bg="#2d2d30")
-        resume_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-
-        # Always allow the checkbox to be set (as a preference for future runs)
-        self.resume_var = tk.BooleanVar(value=self.config.use_resume)
-        self.resume_check = tk.Checkbutton(
-            resume_frame, text="Resume incomplete orders (instead of starting new)",
-            variable=self.resume_var, font=("Segoe UI", 10),
-            fg="#cccccc", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white"
+        mode_label = ctk.CTkLabel(
+            main_frame,
+            text="Run Mode:",
+            font=ctk.CTkFont(size=13, weight="bold")
         )
-        self.resume_check.pack(side=tk.LEFT)
+        mode_label.pack(anchor="w", pady=(0, 10))
 
-        # None mode description
-        self.none_frame = tk.LabelFrame(
-            content_frame, text="None Mode (Normal Run)", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", padx=15, pady=10
+        mode_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        mode_frame.pack(fill="x", pady=(0, 15))
+
+        self.none_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="None",
+            variable=self.mode_var,
+            value="none",
+            command=self._on_mode_change
         )
-        self.none_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.none_radio.pack(side="left", padx=10)
 
-        tk.Label(
+        self.timer_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Timer",
+            variable=self.mode_var,
+            value="timer",
+            command=self._on_mode_change
+        )
+        self.timer_radio.pack(side="left", padx=10)
+
+        self.schedule_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Schedule",
+            variable=self.mode_var,
+            value="schedule",
+            command=self._on_mode_change
+        )
+        self.schedule_radio.pack(side="left", padx=10)
+
+        # Resume option
+        self.resume_var = ctk.BooleanVar(value=self.config.use_resume)
+        self.resume_check = ctk.CTkCheckBox(
+            main_frame,
+            text="Resume incomplete orders (instead of starting new)",
+            variable=self.resume_var
+        )
+        self.resume_check.pack(anchor="w", pady=(0, 20))
+
+        # None mode frame
+        self.none_frame = ctk.CTkFrame(main_frame)
+        self.none_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(
+            self.none_frame,
+            text="None Mode (Normal Run)",
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(anchor="w", padx=15, pady=(15, 5))
+
+        ctk.CTkLabel(
             self.none_frame,
             text="Runs or resumes orders immediately without any timer\nor schedule. The bot will run until orders complete\nor you stop it manually.",
-            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30", justify=tk.LEFT
-        ).pack(anchor="w")
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            justify="left"
+        ).pack(anchor="w", padx=15, pady=(0, 15))
 
         # Timer mode frame
-        self.timer_frame = tk.LabelFrame(
-            content_frame, text="Timer Mode", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", padx=15, pady=10
+        self.timer_frame = ctk.CTkFrame(main_frame)
+        self.timer_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(
+            self.timer_frame,
+            text="Timer Mode",
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(anchor="w", padx=15, pady=(15, 10))
+
+        timer_input_frame = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
+        timer_input_frame.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(timer_input_frame, text="Run for:").pack(side="left")
+
+        self.timer_hours_var = ctk.StringVar(value=str(self.config.timer_hours))
+        self.timer_hours_entry = ctk.CTkEntry(
+            timer_input_frame,
+            textvariable=self.timer_hours_var,
+            width=50
         )
-        self.timer_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.timer_hours_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(timer_input_frame, text="hours").pack(side="left")
 
-        tk.Label(
-            self.timer_frame, text="Run for:", font=("Segoe UI", 10),
-            fg="#cccccc", bg="#2d2d30"
-        ).grid(row=0, column=0, sticky="w", pady=5)
-
-        timer_input_frame = tk.Frame(self.timer_frame, bg="#2d2d30")
-        timer_input_frame.grid(row=0, column=1, sticky="w", pady=5)
-
-        # Load persisted values
-        self.timer_hours_var = tk.StringVar(value=str(self.config.timer_hours))
-        self.timer_hours_entry = tk.Entry(
-            timer_input_frame, textvariable=self.timer_hours_var,
-            font=("Segoe UI", 10), width=4
+        self.timer_minutes_var = ctk.StringVar(value=str(self.config.timer_minutes))
+        self.timer_minutes_entry = ctk.CTkEntry(
+            timer_input_frame,
+            textvariable=self.timer_minutes_var,
+            width=50
         )
-        self.timer_hours_entry.pack(side=tk.LEFT)
-        tk.Label(timer_input_frame, text="hours", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+        self.timer_minutes_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(timer_input_frame, text="minutes").pack(side="left")
 
-        self.timer_minutes_var = tk.StringVar(value=str(self.config.timer_minutes))
-        self.timer_minutes_entry = tk.Entry(
-            timer_input_frame, textvariable=self.timer_minutes_var,
-            font=("Segoe UI", 10), width=4
-        )
-        self.timer_minutes_entry.pack(side=tk.LEFT)
-        tk.Label(timer_input_frame, text="minutes", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
-
-        tk.Label(
+        ctk.CTkLabel(
             self.timer_frame,
             text="After the timer expires, StopGently will be called.",
-            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        ).pack(anchor="w", padx=15, pady=(5, 15))
 
         # Schedule mode frame
-        self.schedule_frame = tk.LabelFrame(
-            content_frame, text="Schedule Mode", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", padx=15, pady=10
-        )
-        self.schedule_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.schedule_frame = ctk.CTkFrame(main_frame)
+        self.schedule_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(
+            self.schedule_frame,
+            text="Schedule Mode",
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(anchor="w", padx=15, pady=(15, 10))
 
         # Start time
-        tk.Label(
-            self.schedule_frame, text="Start at:", font=("Segoe UI", 10),
-            fg="#cccccc", bg="#2d2d30"
-        ).grid(row=0, column=0, sticky="w", pady=5)
+        start_frame = ctk.CTkFrame(self.schedule_frame, fg_color="transparent")
+        start_frame.pack(fill="x", padx=15, pady=5)
 
-        start_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
-        start_frame.grid(row=0, column=1, sticky="w", pady=5)
+        ctk.CTkLabel(start_frame, text="Start at:", width=60).pack(side="left")
 
-        # Load persisted values
-        self.start_hour_var = tk.StringVar(value=f"{self.config.schedule_start_hour:02d}")
-        self.start_hour_entry = tk.Entry(
-            start_frame, textvariable=self.start_hour_var,
-            font=("Segoe UI", 10), width=3
+        self.start_hour_var = ctk.StringVar(value=f"{self.config.schedule_start_hour:02d}")
+        self.start_hour_entry = ctk.CTkEntry(
+            start_frame,
+            textvariable=self.start_hour_var,
+            width=40
         )
-        self.start_hour_entry.pack(side=tk.LEFT)
-        tk.Label(start_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
+        self.start_hour_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(start_frame, text=":").pack(side="left")
 
-        self.start_minute_var = tk.StringVar(value=f"{self.config.schedule_start_minute:02d}")
-        self.start_minute_entry = tk.Entry(
-            start_frame, textvariable=self.start_minute_var,
-            font=("Segoe UI", 10), width=3
+        self.start_minute_var = ctk.StringVar(value=f"{self.config.schedule_start_minute:02d}")
+        self.start_minute_entry = ctk.CTkEntry(
+            start_frame,
+            textvariable=self.start_minute_var,
+            width=40
         )
-        self.start_minute_entry.pack(side=tk.LEFT)
-        tk.Label(start_frame, text="(local time)", fg="#888888", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+        self.start_minute_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(start_frame, text="(local time)", text_color="gray").pack(side="left", padx=10)
 
         # End time
-        tk.Label(
-            self.schedule_frame, text="Stop at:", font=("Segoe UI", 10),
-            fg="#cccccc", bg="#2d2d30"
-        ).grid(row=1, column=0, sticky="w", pady=5)
+        end_frame = ctk.CTkFrame(self.schedule_frame, fg_color="transparent")
+        end_frame.pack(fill="x", padx=15, pady=5)
 
-        end_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
-        end_frame.grid(row=1, column=1, sticky="w", pady=5)
+        ctk.CTkLabel(end_frame, text="Stop at:", width=60).pack(side="left")
 
-        self.end_hour_var = tk.StringVar(value=f"{self.config.schedule_end_hour:02d}")
-        self.end_hour_entry = tk.Entry(
-            end_frame, textvariable=self.end_hour_var,
-            font=("Segoe UI", 10), width=3
+        self.end_hour_var = ctk.StringVar(value=f"{self.config.schedule_end_hour:02d}")
+        self.end_hour_entry = ctk.CTkEntry(
+            end_frame,
+            textvariable=self.end_hour_var,
+            width=40
         )
-        self.end_hour_entry.pack(side=tk.LEFT)
-        tk.Label(end_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
+        self.end_hour_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(end_frame, text=":").pack(side="left")
 
-        self.end_minute_var = tk.StringVar(value=f"{self.config.schedule_end_minute:02d}")
-        self.end_minute_entry = tk.Entry(
-            end_frame, textvariable=self.end_minute_var,
-            font=("Segoe UI", 10), width=3
+        self.end_minute_var = ctk.StringVar(value=f"{self.config.schedule_end_minute:02d}")
+        self.end_minute_entry = ctk.CTkEntry(
+            end_frame,
+            textvariable=self.end_minute_var,
+            width=40
         )
-        self.end_minute_entry.pack(side=tk.LEFT)
-        tk.Label(end_frame, text="(local time)", fg="#888888", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+        self.end_minute_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(end_frame, text="(local time)", text_color="gray").pack(side="left", padx=10)
 
-        tk.Label(
+        ctk.CTkLabel(
             self.schedule_frame,
             text="Runs daily: starts at start time, stops at end time.",
-            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(5, 0))
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        ).pack(anchor="w", padx=15, pady=(5, 15))
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            fg_color="gray",
+            hover_color="gray30",
+            width=100,
+            command=self.destroy
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Start",
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            width=100,
+            command=self._on_start
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Save",
+            fg_color="#3498db",
+            hover_color="#2980b9",
+            width=100,
+            command=self._on_save
+        ).pack(side="right", padx=5)
 
         # Initialize visibility
         self._on_mode_change()
 
     def _on_mode_change(self):
-        """Updates frame visibility based on selected mode."""
+        """Updates frame opacity based on selected mode."""
         mode = self.mode_var.get()
 
-        # Update frame styling based on mode
-        self.none_frame.config(fg="white" if mode == "none" else "#666666")
-        self.timer_frame.config(fg="white" if mode == "timer" else "#666666")
-        self.schedule_frame.config(fg="white" if mode == "schedule" else "#666666")
-
-        # Enable/disable timer entries
-        for child in self.timer_frame.winfo_children():
-            if isinstance(child, tk.Frame):
-                for subchild in child.winfo_children():
-                    if isinstance(subchild, tk.Entry):
-                        subchild.config(state=tk.NORMAL if mode == "timer" else tk.DISABLED)
-            elif isinstance(child, tk.Entry):
-                child.config(state=tk.NORMAL if mode == "timer" else tk.DISABLED)
-
-        # Enable/disable schedule entries
-        for child in self.schedule_frame.winfo_children():
-            if isinstance(child, tk.Frame):
-                for subchild in child.winfo_children():
-                    if isinstance(subchild, tk.Entry):
-                        subchild.config(state=tk.NORMAL if mode == "schedule" else tk.DISABLED)
-            elif isinstance(child, tk.Entry):
-                child.config(state=tk.NORMAL if mode == "schedule" else tk.DISABLED)
+        # Visual feedback for active mode (using border color)
+        for frame, frame_mode in [(self.none_frame, "none"),
+                                   (self.timer_frame, "timer"),
+                                   (self.schedule_frame, "schedule")]:
+            if mode == frame_mode:
+                frame.configure(border_width=2, border_color="#9b59b6")
+            else:
+                frame.configure(border_width=0)
 
     def _on_start(self):
         """Validates and returns result."""
-        config = AdvancedRunConfig()
-        config.mode = self.mode_var.get()
-        # Always save the user's preference for resume - it will be used when incomplete orders exist
-        config.use_resume = self.resume_var.get()
-
-        try:
-            # Always save timer values even if not in timer mode (for persistence)
-            config.timer_hours = int(self.timer_hours_var.get())
-            config.timer_minutes = int(self.timer_minutes_var.get())
-
-            # Always save schedule values even if not in schedule mode (for persistence)
-            config.schedule_start_hour = int(self.start_hour_var.get())
-            config.schedule_start_minute = int(self.start_minute_var.get())
-            config.schedule_end_hour = int(self.end_hour_var.get())
-            config.schedule_end_minute = int(self.end_minute_var.get())
-
-            # Validate based on current mode
-            if config.mode == "timer":
-                if config.timer_hours < 0 or config.timer_minutes < 0:
-                    raise ValueError("Time cannot be negative")
-                if config.timer_hours == 0 and config.timer_minutes == 0:
-                    raise ValueError("Timer must be at least 1 minute")
-            elif config.mode == "schedule":
-                # Validate ranges
-                if not (0 <= config.schedule_start_hour <= 23):
-                    raise ValueError("Start hour must be 0-23")
-                if not (0 <= config.schedule_start_minute <= 59):
-                    raise ValueError("Start minute must be 0-59")
-                if not (0 <= config.schedule_end_hour <= 23):
-                    raise ValueError("End hour must be 0-23")
-                if not (0 <= config.schedule_end_minute <= 59):
-                    raise ValueError("End minute must be 0-59")
-
-        except ValueError as e:
-            messagebox.showerror("Invalid Input", str(e))
+        config = self._build_and_validate_config()
+        if config is None:
             return
 
         self.result = config
@@ -906,7 +896,7 @@ class AdvancedRunDialog(tk.Toplevel):
         self.destroy()
 
     def _build_and_validate_config(self) -> Optional[AdvancedRunConfig]:
-        """Builds and validates configuration from form values. Returns None on error."""
+        """Builds and validates configuration from form values."""
         config = AdvancedRunConfig()
         config.mode = self.mode_var.get()
         config.use_resume = self.resume_var.get()
@@ -942,245 +932,529 @@ class AdvancedRunDialog(tk.Toplevel):
 
 
 # =============================================================================
+# Add Instance Dialog
+# =============================================================================
+
+class AddInstanceDialog(ctk.CTkToplevel):
+    """Dialog for adding a new Wrangler instance."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Add Wrangler Instance")
+        self.geometry("420x280")
+        self.minsize(420, 280)
+        self.resizable(True, True)
+
+        self.result = None
+
+        self._create_widgets()
+
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        """Creates dialog widgets."""
+        # Main frame
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=30, pady=30)
+
+        # Name field
+        ctk.CTkLabel(main_frame, text="Name:", font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(0, 5))
+        self.name_entry = ctk.CTkEntry(main_frame, width=360, placeholder_text="Account 1")
+        self.name_entry.pack(fill="x", pady=(0, 15))
+        self.name_entry.insert(0, "Account 1")
+
+        # Host field
+        ctk.CTkLabel(main_frame, text="Host:", font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(0, 5))
+        self.host_entry = ctk.CTkEntry(main_frame, width=360, placeholder_text="localhost")
+        self.host_entry.pack(fill="x", pady=(0, 15))
+        self.host_entry.insert(0, "localhost")
+
+        # Port field
+        ctk.CTkLabel(main_frame, text="Port:", font=ctk.CTkFont(size=12)).pack(anchor="w", pady=(0, 5))
+        self.port_entry = ctk.CTkEntry(main_frame, width=360, placeholder_text="7800")
+        self.port_entry.pack(fill="x", pady=(0, 20))
+        self.port_entry.insert(0, "7800")
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            fg_color="gray",
+            hover_color="gray30",
+            width=100,
+            command=self.destroy
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Add",
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            width=100,
+            command=self._on_add
+        ).pack(side="right", padx=5)
+
+    def _on_add(self):
+        """Validates and returns result."""
+        name = self.name_entry.get().strip()
+        host = self.host_entry.get().strip()
+        port_str = self.port_entry.get().strip()
+
+        if not name:
+            messagebox.showerror("Error", "Name is required")
+            return
+
+        if not host:
+            messagebox.showerror("Error", "Host is required")
+            return
+
+        try:
+            port = int(port_str)
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Error", "Port must be a number between 1 and 65535")
+            return
+
+        self.result = (name, host, port)
+        self.destroy()
+
+
+# =============================================================================
+# Settings Dialog
+# =============================================================================
+
+class SettingsDialog(ctk.CTkToplevel):
+    """Dialog for application settings."""
+
+    def __init__(self, parent, settings: AppSettings, on_apply: Callable):
+        super().__init__(parent)
+        self.title("Settings")
+        self.geometry("450x400")
+        self.minsize(450, 400)
+        self.resizable(True, True)
+
+        self.settings = settings
+        self.on_apply = on_apply
+
+        self._create_widgets()
+
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        """Creates dialog widgets."""
+        # Main frame
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=30, pady=30)
+
+        # Appearance section
+        ctk.CTkLabel(
+            main_frame,
+            text="Appearance",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", pady=(0, 15))
+
+        # Appearance mode
+        mode_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        mode_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(mode_frame, text="Mode:", width=120).pack(side="left")
+        self.appearance_var = ctk.StringVar(value=self.settings.appearance_mode)
+        self.appearance_menu = ctk.CTkOptionMenu(
+            mode_frame,
+            values=["light", "dark", "system"],
+            variable=self.appearance_var,
+            width=200
+        )
+        self.appearance_menu.pack(side="left")
+
+        # Color theme
+        theme_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        theme_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(theme_frame, text="Color Theme:", width=120).pack(side="left")
+        self.theme_var = ctk.StringVar(value=self.settings.color_theme)
+        self.theme_menu = ctk.CTkOptionMenu(
+            theme_frame,
+            values=AVAILABLE_THEMES,
+            variable=self.theme_var,
+            width=200
+        )
+        self.theme_menu.pack(side="left")
+
+        # Background section
+        ctk.CTkLabel(
+            main_frame,
+            text="Background",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", pady=(30, 15))
+
+        # Background image
+        bg_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        bg_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(bg_frame, text="Image:", width=120).pack(side="left")
+
+        self.bg_path_var = ctk.StringVar(value=self.settings.background_image)
+        self.bg_entry = ctk.CTkEntry(
+            bg_frame,
+            textvariable=self.bg_path_var,
+            width=200,
+            placeholder_text="No image selected"
+        )
+        self.bg_entry.pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            bg_frame,
+            text="Browse",
+            width=70,
+            command=self._browse_background
+        ).pack(side="left")
+
+        # Clear background button
+        clear_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        clear_frame.pack(fill="x", pady=5)
+
+        ctk.CTkButton(
+            clear_frame,
+            text="Clear Background",
+            fg_color="gray",
+            hover_color="gray30",
+            width=150,
+            command=self._clear_background
+        ).pack(side="left", padx=(120, 0))
+
+        # Note about theme changes
+        note_label = ctk.CTkLabel(
+            main_frame,
+            text="Note: Theme changes require restart to take full effect.",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        )
+        note_label.pack(anchor="w", pady=(30, 0))
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=30, pady=20)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            fg_color="gray",
+            hover_color="gray30",
+            width=100,
+            command=self.destroy
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Apply",
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            width=100,
+            command=self._on_apply
+        ).pack(side="right", padx=5)
+
+    def _browse_background(self):
+        """Opens file dialog to select background image."""
+        path = filedialog.askopenfilename(
+            title="Select Background Image",
+            filetypes=[
+                ("Image Files", "*.png *.jpg *.jpeg *.gif *.bmp"),
+                ("All Files", "*.*")
+            ]
+        )
+        if path:
+            self.bg_path_var.set(path)
+
+    def _clear_background(self):
+        """Clears the background image selection."""
+        self.bg_path_var.set("")
+
+    def _on_apply(self):
+        """Applies settings and closes dialog."""
+        self.settings.appearance_mode = self.appearance_var.get()
+        self.settings.color_theme = self.theme_var.get()
+        self.settings.background_image = self.bg_path_var.get()
+        self.on_apply(self.settings)
+        self.destroy()
+
+
+# =============================================================================
 # Main Application
 # =============================================================================
 
-class WranglerMasterApp:
+class WranglerMasterApp(ctk.CTk):
     """Main application class."""
 
-    def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title("Wrangler Master Control")
-        self.root.geometry("900x700")
-        self.root.minsize(600, 400)
-        self.root.configure(bg="#1e1e1e")
+    def __init__(self):
+        super().__init__()
+
+        # Load settings first
+        self.app_settings = AppSettings()
+        self._load_app_settings()
+
+        # Apply theme
+        self._apply_theme()
+
+        self.title("Wrangler Master Control")
+        self.geometry("950x750")
+        self.minsize(700, 500)
 
         # Data
         self.instances: List[WranglerInstance] = []
-        self.panels: Dict[str, InstancePanel] = {}  # key = host:port
+        self.panels: Dict[str, InstancePanel] = {}
         self.polling_active = True
 
         # Default JSON path for run commands
         self.default_json_path = ""
 
         # Advanced run tracking
-        # key = "host:port", value = dict with schedule info
-        self.active_timers: Dict[str, dict] = {}  # {key: {"end_time": datetime, "stopped": False}}
-        self.active_schedules: Dict[str, dict] = {}  # {key: {"config": AdvancedRunConfig, "last_action": str}}
+        self.active_timers: Dict[str, dict] = {}
+        self.active_schedules: Dict[str, dict] = {}
+
+        # Background image
+        self.bg_image = None
+        self.bg_label = None
 
         # Create UI
-        self._create_menu()
-        self._create_toolbar()
-        self._create_main_area()
-        self._create_status_bar()
+        self._create_ui()
 
         # Load config and start polling
         self._load_config()
         self._start_polling()
 
         # Handle window close
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _create_menu(self):
-        """Creates the menu bar."""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
+    def _apply_theme(self):
+        """Applies the current theme settings."""
+        ctk.set_appearance_mode(self.app_settings.appearance_mode)
 
-        # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Add Instance...", command=self._add_instance_dialog)
-        file_menu.add_separator()
-        file_menu.add_command(label="Set Default JSON Path...", command=self._set_json_path)
-        file_menu.add_separator()
-        file_menu.add_command(label="Save Config", command=self._save_config)
-        file_menu.add_command(label="Load Config...", command=self._load_config_dialog)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self._on_close)
+        if self.app_settings.color_theme == "wrangler" and WRANGLER_THEME_PATH.exists():
+            ctk.set_default_color_theme(str(WRANGLER_THEME_PATH))
+        elif self.app_settings.color_theme in ["blue", "dark-blue", "green"]:
+            ctk.set_default_color_theme(self.app_settings.color_theme)
 
-        # Actions menu
-        actions_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Actions", menu=actions_menu)
-        actions_menu.add_command(label="Refresh All", command=self._refresh_all)
-        actions_menu.add_separator()
-        actions_menu.add_command(label="Start All", command=self._start_all)
-        actions_menu.add_command(label="Resume All", command=self._resume_all)
-        actions_menu.add_command(label="Stop All Gently", command=self._stop_all)
+    def _create_ui(self):
+        """Creates the main UI."""
+        # Background image (if set)
+        self._setup_background()
+
+        # Main container
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True)
+
+        self._create_toolbar()
+        self._create_main_area()
+        self._create_status_bar()
+
+    def _setup_background(self):
+        """Sets up background image if configured."""
+        if self.app_settings.background_image and os.path.exists(self.app_settings.background_image):
+            try:
+                img = Image.open(self.app_settings.background_image)
+                self.bg_image = ctk.CTkImage(
+                    light_image=img,
+                    dark_image=img,
+                    size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                )
+                self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
+                self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+
+                # Bind resize event to update background
+                self.bind("<Configure>", self._on_resize)
+            except Exception as e:
+                print(f"Failed to load background image: {e}")
+
+    def _on_resize(self, event=None):
+        """Updates background image size on window resize."""
+        if self.bg_image and self.app_settings.background_image:
+            try:
+                img = Image.open(self.app_settings.background_image)
+                self.bg_image = ctk.CTkImage(
+                    light_image=img,
+                    dark_image=img,
+                    size=(self.winfo_width(), self.winfo_height())
+                )
+                if self.bg_label:
+                    self.bg_label.configure(image=self.bg_image)
+            except:
+                pass
 
     def _create_toolbar(self):
         """Creates the toolbar with master controls."""
-        toolbar = tk.Frame(self.root, bg="#2d2d30", pady=10)
-        toolbar.pack(fill=tk.X, padx=10, pady=(10, 0))
+        toolbar = ctk.CTkFrame(self.main_container, corner_radius=0)
+        toolbar.pack(fill="x", padx=15, pady=(15, 0))
 
-        # Title
-        title = tk.Label(
-            toolbar,
+        # Left side - Title
+        title_frame = ctk.CTkFrame(toolbar, fg_color="transparent")
+        title_frame.pack(side="left", padx=15, pady=15)
+
+        title = ctk.CTkLabel(
+            title_frame,
             text="Wrangler Master Control",
-            font=("Segoe UI", 16, "bold"),
-            fg="white",
-            bg="#2d2d30"
+            font=ctk.CTkFont(size=20, weight="bold")
         )
-        title.pack(side=tk.LEFT, padx=10)
+        title.pack(side="left")
 
-        # Master buttons (right side)
-        btn_frame = tk.Frame(toolbar, bg="#2d2d30")
-        btn_frame.pack(side=tk.RIGHT, padx=10)
+        # Right side - Buttons
+        btn_frame = ctk.CTkFrame(toolbar, fg_color="transparent")
+        btn_frame.pack(side="right", padx=15, pady=10)
 
-        self.start_all_btn = tk.Button(
+        self.settings_btn = ctk.CTkButton(
             btn_frame,
-            text="Start All",
-            font=("Segoe UI", 10, "bold"),
-            bg="#2ecc71",
-            fg="white",
-            activebackground="#27ae60",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=5,
-            command=self._start_all
+            text="Settings",
+            font=ctk.CTkFont(size=12),
+            fg_color="gray",
+            hover_color="gray30",
+            width=90,
+            height=32,
+            command=self._show_settings
         )
-        self.start_all_btn.pack(side=tk.LEFT, padx=5)
+        self.settings_btn.pack(side="left", padx=5)
 
-        self.resume_all_btn = tk.Button(
-            btn_frame,
-            text="Resume All",
-            font=("Segoe UI", 10, "bold"),
-            bg="#3498db",
-            fg="white",
-            activebackground="#2980b9",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=5,
-            command=self._resume_all
-        )
-        self.resume_all_btn.pack(side=tk.LEFT, padx=5)
-
-        self.stop_all_btn = tk.Button(
-            btn_frame,
-            text="Stop All Gently",
-            font=("Segoe UI", 10, "bold"),
-            bg="#e67e22",
-            fg="white",
-            activebackground="#d35400",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=5,
-            command=self._stop_all
-        )
-        self.stop_all_btn.pack(side=tk.LEFT, padx=5)
-
-        self.add_btn = tk.Button(
-            btn_frame,
-            text="+ Add Instance",
-            font=("Segoe UI", 10),
-            bg="#3498db",
-            fg="white",
-            activebackground="#2980b9",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            command=self._add_instance_dialog
-        )
-        self.add_btn.pack(side=tk.LEFT, padx=5)
-
-        self.refresh_btn = tk.Button(
+        self.refresh_btn = ctk.CTkButton(
             btn_frame,
             text="Refresh",
-            font=("Segoe UI", 10),
-            bg="#9b59b6",
-            fg="white",
-            activebackground="#8e44ad",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
+            font=ctk.CTkFont(size=12),
+            fg_color="#9b59b6",
+            hover_color="#8e44ad",
+            width=90,
+            height=32,
             command=self._refresh_all
         )
-        self.refresh_btn.pack(side=tk.LEFT, padx=5)
+        self.refresh_btn.pack(side="left", padx=5)
+
+        self.add_btn = ctk.CTkButton(
+            btn_frame,
+            text="+ Add",
+            font=ctk.CTkFont(size=12),
+            fg_color="#3498db",
+            hover_color="#2980b9",
+            width=90,
+            height=32,
+            command=self._add_instance_dialog
+        )
+        self.add_btn.pack(side="left", padx=5)
+
+        self.stop_all_btn = ctk.CTkButton(
+            btn_frame,
+            text="Stop All",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#e67e22",
+            hover_color="#d35400",
+            width=90,
+            height=32,
+            command=self._stop_all
+        )
+        self.stop_all_btn.pack(side="left", padx=5)
+
+        self.resume_all_btn = ctk.CTkButton(
+            btn_frame,
+            text="Resume All",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#3498db",
+            hover_color="#2980b9",
+            width=100,
+            height=32,
+            command=self._resume_all
+        )
+        self.resume_all_btn.pack(side="left", padx=5)
+
+        self.start_all_btn = ctk.CTkButton(
+            btn_frame,
+            text="Start All",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#2ecc71",
+            hover_color="#27ae60",
+            width=90,
+            height=32,
+            command=self._start_all
+        )
+        self.start_all_btn.pack(side="left", padx=5)
 
     def _create_main_area(self):
         """Creates the main scrollable area for instance panels."""
-        # Container frame
-        container = tk.Frame(self.root, bg="#1e1e1e")
-        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        # Canvas with scrollbar
-        self.canvas = tk.Canvas(container, bg="#1e1e1e", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=self.canvas.yview)
-
-        self.panels_frame = tk.Frame(self.canvas, bg="#1e1e1e")
-
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.panels_frame, anchor=tk.NW)
-
-        # Bind resize events
-        self.panels_frame.bind("<Configure>", self._on_frame_configure)
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-
-        # Enable mousewheel scrolling
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.panels_scroll = ctk.CTkScrollableFrame(
+            self.main_container,
+            corner_radius=10
+        )
+        self.panels_scroll.pack(fill="both", expand=True, padx=15, pady=15)
 
     def _create_status_bar(self):
         """Creates the status bar at the bottom."""
-        self.status_bar = tk.Label(
-            self.root,
+        status_frame = ctk.CTkFrame(self.main_container, corner_radius=0, height=35)
+        status_frame.pack(fill="x", side="bottom")
+        status_frame.pack_propagate(False)
+
+        self.status_label = ctk.CTkLabel(
+            status_frame,
             text="Ready",
-            font=("Segoe UI", 9),
-            fg="#888888",
-            bg="#2d2d30",
-            anchor=tk.W,
-            padx=10,
-            pady=5
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
         )
-        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.status_label.pack(side="left", padx=15, pady=8)
 
-    def _on_frame_configure(self, event=None):
-        """Updates scroll region when frame size changes."""
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-    def _on_canvas_configure(self, event):
-        """Adjusts frame width when canvas is resized."""
-        self.canvas.itemconfig(self.canvas_window, width=event.width)
-
-    def _on_mousewheel(self, event):
-        """Handles mousewheel scrolling."""
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # JSON path indicator
+        self.json_label = ctk.CTkLabel(
+            status_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        )
+        self.json_label.pack(side="right", padx=15, pady=8)
 
     def _refresh_panels(self):
         """Recreates all instance panels."""
         # Clear existing panels
-        for widget in self.panels_frame.winfo_children():
+        for widget in self.panels_scroll.winfo_children():
             widget.destroy()
         self.panels.clear()
 
         if not self.instances:
-            # Show placeholder
-            placeholder = tk.Label(
-                self.panels_frame,
-                text="No instances configured.\nClick '+ Add Instance' to add a Wrangler instance.",
-                font=("Segoe UI", 12),
-                fg="#666666",
-                bg="#1e1e1e",
-                pady=50
+            placeholder = ctk.CTkLabel(
+                self.panels_scroll,
+                text="No instances configured.\nClick '+ Add' to add a Wrangler instance.",
+                font=ctk.CTkFont(size=14),
+                text_color="gray"
             )
-            placeholder.pack(fill=tk.BOTH, expand=True)
+            placeholder.pack(pady=50)
             return
 
         # Create panels in a grid layout
         cols = 3
+        row_frame = None
+
         for i, instance in enumerate(self.instances):
             if not instance.enabled:
                 continue
 
+            if i % cols == 0:
+                row_frame = ctk.CTkFrame(self.panels_scroll, fg_color="transparent")
+                row_frame.pack(fill="x", pady=5)
+
             panel = InstancePanel(
-                self.panels_frame,
+                row_frame,
                 instance,
                 on_run=self._on_panel_run,
                 on_stop=self._on_panel_stop,
@@ -1189,17 +1463,10 @@ class WranglerMasterApp:
                 on_remove=self._on_panel_remove,
                 on_settings_changed=self._save_config
             )
-
-            row = i // cols
-            col = i % cols
-            panel.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+            panel.pack(side="left", padx=5, pady=5, fill="both", expand=True)
 
             key = f"{instance.host}:{instance.port}"
             self.panels[key] = panel
-
-        # Configure grid weights for equal sizing
-        for c in range(cols):
-            self.panels_frame.columnconfigure(c, weight=1)
 
     def _update_panel(self, instance: WranglerInstance, status: InstanceStatus):
         """Updates a single panel with new status."""
@@ -1212,7 +1479,6 @@ class WranglerMasterApp:
         def poll():
             while self.polling_active:
                 self._refresh_all_async()
-                # Check timers and schedules every poll cycle
                 self._check_timers()
                 self._check_schedules()
                 time.sleep(POLL_INTERVAL_MS / 1000)
@@ -1221,15 +1487,13 @@ class WranglerMasterApp:
         thread.start()
 
     def _refresh_all_async(self):
-        """Fetches status from all instances (called from background thread)."""
+        """Fetches status from all instances."""
         for instance in self.instances:
             if not instance.enabled:
                 continue
 
             status = WranglerClient.get_status(instance)
-
-            # Update UI from main thread
-            self.root.after(0, lambda i=instance, s=status: self._update_panel(i, s))
+            self.after(0, lambda i=instance, s=status: self._update_panel(i, s))
 
     def _refresh_all(self):
         """Manual refresh triggered by button."""
@@ -1237,15 +1501,36 @@ class WranglerMasterApp:
 
         def do_refresh():
             self._refresh_all_async()
-            self.root.after(0, lambda: self._set_status("Refresh complete"))
+            self.after(0, lambda: self._set_status("Refresh complete"))
 
         thread = threading.Thread(target=do_refresh, daemon=True)
         thread.start()
 
+    def _show_settings(self):
+        """Shows the settings dialog."""
+        dialog = SettingsDialog(self, self.app_settings, self._on_settings_apply)
+        self.wait_window(dialog)
+
+    def _on_settings_apply(self, settings: AppSettings):
+        """Handles settings apply."""
+        self.app_settings = settings
+        self._save_app_settings()
+
+        # Apply appearance mode immediately
+        ctk.set_appearance_mode(settings.appearance_mode)
+
+        # Update background
+        if self.bg_label:
+            self.bg_label.destroy()
+            self.bg_label = None
+        self._setup_background()
+
+        self._set_status("Settings applied. Restart for full theme changes.")
+
     def _add_instance_dialog(self):
         """Shows dialog to add a new instance."""
-        dialog = AddInstanceDialog(self.root)
-        self.root.wait_window(dialog)
+        dialog = AddInstanceDialog(self)
+        self.wait_window(dialog)
 
         if dialog.result:
             name, host, port = dialog.result
@@ -1265,17 +1550,20 @@ class WranglerMasterApp:
             self.default_json_path = path
             self._save_config()
             self._set_status(f"Default JSON: {os.path.basename(path)}")
+            self.json_label.configure(text=f"JSON: {os.path.basename(path)}")
 
     def _on_panel_run(self, instance: WranglerInstance):
         """Handles run button click from a panel."""
         if not self.default_json_path:
-            # Ask for JSON path
             path = filedialog.askopenfilename(
                 title="Select JSON File to Run",
                 filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
             )
             if not path:
                 return
+            self.default_json_path = path
+            self._save_config()
+            self.json_label.configure(text=f"JSON: {os.path.basename(path)}")
         else:
             path = self.default_json_path
 
@@ -1283,13 +1571,12 @@ class WranglerMasterApp:
 
         def do_run():
             success, message = WranglerClient.run_order(instance, json_path=path)
-            self.root.after(0, lambda: self._set_status(
+            self.after(0, lambda: self._set_status(
                 f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
             ))
-            # Refresh status after short delay
             time.sleep(1)
             status = WranglerClient.get_status(instance)
-            self.root.after(0, lambda: self._update_panel(instance, status))
+            self.after(0, lambda: self._update_panel(instance, status))
 
         thread = threading.Thread(target=do_run, daemon=True)
         thread.start()
@@ -1300,13 +1587,12 @@ class WranglerMasterApp:
 
         def do_stop():
             success, message = WranglerClient.stop_gently(instance)
-            self.root.after(0, lambda: self._set_status(
+            self.after(0, lambda: self._set_status(
                 f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
             ))
-            # Refresh status after short delay
             time.sleep(2)
             status = WranglerClient.get_status(instance)
-            self.root.after(0, lambda: self._update_panel(instance, status))
+            self.after(0, lambda: self._update_panel(instance, status))
 
         thread = threading.Thread(target=do_stop, daemon=True)
         thread.start()
@@ -1317,46 +1603,39 @@ class WranglerMasterApp:
 
         def do_resume():
             success, message = WranglerClient.resume_orders(instance)
-            self.root.after(0, lambda: self._set_status(
+            self.after(0, lambda: self._set_status(
                 f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
             ))
-            # Refresh status after short delay
             time.sleep(1)
             status = WranglerClient.get_status(instance)
-            self.root.after(0, lambda: self._update_panel(instance, status))
+            self.after(0, lambda: self._update_panel(instance, status))
 
         thread = threading.Thread(target=do_resume, daemon=True)
         thread.start()
 
     def _on_panel_advanced_run(self, instance: WranglerInstance):
         """Handles advanced run button click from a panel."""
-        # Get current status to check for incomplete orders
         key = f"{instance.host}:{instance.port}"
         panel = self.panels.get(key)
         has_incomplete = panel.status.has_incomplete_orders if panel else False
 
-        # Get existing config from instance
         existing_config = instance.get_advanced_config()
 
-        # Show dialog with existing config
-        dialog = AdvancedRunDialog(self.root, instance.name, has_incomplete, existing_config)
-        self.root.wait_window(dialog)
+        dialog = AdvancedRunDialog(self, instance.name, has_incomplete, existing_config)
+        self.wait_window(dialog)
 
         if dialog.result is None:
             return
 
         config = dialog.result
 
-        # Save the config to the instance for persistence
         instance.set_advanced_config(config)
         self._save_config()
 
-        # If user clicked Save (not Start), just save and return without running
         if dialog.save_only:
             self._set_status(f"{instance.name}: Configuration saved")
             return
 
-        # Check for default JSON path for non-resume runs
         if not config.use_resume and not self.default_json_path:
             path = filedialog.askopenfilename(
                 title="Select JSON File to Run",
@@ -1368,17 +1647,14 @@ class WranglerMasterApp:
             self._save_config()
 
         if config.mode == "none":
-            # None mode: just run or resume immediately, no timer/schedule
             self._start_none_mode(instance, config)
         elif config.mode == "timer":
-            # Timer mode: start now, stop after duration
             self._start_timer_mode(instance, config)
         else:
-            # Schedule mode: manage based on current time
             self._start_schedule_mode(instance, config)
 
     def _start_none_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
-        """Starts none mode - just runs or resumes immediately without timer/schedule."""
+        """Starts none mode - runs or resumes immediately."""
         action = "Resuming" if config.use_resume else "Starting"
         self._set_status(f"{instance.name}: {action}...")
 
@@ -1390,12 +1666,12 @@ class WranglerMasterApp:
                 success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
                 action_past = "Started"
 
-            self.root.after(0, lambda: self._set_status(
+            self.after(0, lambda: self._set_status(
                 f"{instance.name}: {action_past}" if success else f"{instance.name} failed: {message}"
             ))
             time.sleep(1)
             status = WranglerClient.get_status(instance)
-            self.root.after(0, lambda: self._update_panel(instance, status))
+            self.after(0, lambda: self._update_panel(instance, status))
 
         thread = threading.Thread(target=do_run, daemon=True)
         thread.start()
@@ -1413,23 +1689,20 @@ class WranglerMasterApp:
         }
 
         action = "Resuming" if config.use_resume else "Starting"
-        self._set_status(f"{instance.name}: Timer started ({config.timer_hours}h {config.timer_minutes}m), {action.lower()}...")
+        self._set_status(f"{instance.name}: Timer started ({config.timer_hours}h {config.timer_minutes}m)")
 
-        # Start the order now
         def do_run():
             if config.use_resume:
                 success, message = WranglerClient.resume_orders(instance)
-                action_past = "Resumed"
             else:
                 success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
-                action_past = "Started"
 
-            self.root.after(0, lambda: self._set_status(
-                f"{instance.name}: {action_past} (timer mode)" if success else f"{instance.name} failed: {message}"
+            self.after(0, lambda: self._set_status(
+                f"{instance.name}: {action} (timer mode)" if success else f"{instance.name} failed: {message}"
             ))
             time.sleep(1)
             status = WranglerClient.get_status(instance)
-            self.root.after(0, lambda: self._update_panel(instance, status))
+            self.after(0, lambda: self._update_panel(instance, status))
 
         thread = threading.Thread(target=do_run, daemon=True)
         thread.start()
@@ -1441,7 +1714,7 @@ class WranglerMasterApp:
         self.active_schedules[key] = {
             "config": config,
             "instance": instance,
-            "last_action": None  # "started" or "stopped"
+            "last_action": None
         }
 
         mode_desc = "resume" if config.use_resume else "run"
@@ -1451,7 +1724,6 @@ class WranglerMasterApp:
             f"{config.schedule_end_hour:02d}:{config.schedule_end_minute:02d})"
         )
 
-        # Check if we should start immediately based on current time
         self._check_schedule_for_instance(key)
 
     def _check_timers(self):
@@ -1464,40 +1736,32 @@ class WranglerMasterApp:
                 continue
 
             if now >= timer_data["end_time"]:
-                # Timer expired, stop the instance
                 instance = timer_data["instance"]
                 timer_data["stopped"] = True
                 keys_to_remove.append(key)
 
                 def do_stop(inst=instance):
-                    success, _ = WranglerClient.stop_gently(inst)
-                    self.root.after(0, lambda: self._set_status(
-                        f"{inst.name}: Timer expired, stopping..."
-                    ))
+                    WranglerClient.stop_gently(inst)
+                    self.after(0, lambda: self._set_status(f"{inst.name}: Timer expired, stopping..."))
                     time.sleep(2)
                     status = WranglerClient.get_status(inst)
-                    self.root.after(0, lambda: self._update_panel(inst, status))
+                    self.after(0, lambda: self._update_panel(inst, status))
 
-                    # Go home if enabled
                     if inst.go_home_after_session:
-                        time.sleep(3)  # Wait for stop to complete
+                        time.sleep(3)
                         success, msg = WranglerClient.go_home(inst)
-                        self.root.after(0, lambda: self._set_status(
-                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed: {msg}"
+                        self.after(0, lambda: self._set_status(
+                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed"
                         ))
 
                 threading.Thread(target=do_stop, daemon=True).start()
 
-        # Clean up expired timers
         for key in keys_to_remove:
             del self.active_timers[key]
 
     def _check_schedules(self):
-        """Checks all active schedules and starts/stops instances as needed."""
-        now = datetime.now()
-        current_minutes = now.hour * 60 + now.minute
-
-        for key, schedule_data in self.active_schedules.items():
+        """Checks all active schedules."""
+        for key in self.active_schedules:
             self._check_schedule_for_instance(key)
 
     def _check_schedule_for_instance(self, key: str):
@@ -1515,21 +1779,15 @@ class WranglerMasterApp:
         start_minutes = config.schedule_start_hour * 60 + config.schedule_start_minute
         end_minutes = config.schedule_end_hour * 60 + config.schedule_end_minute
 
-        # Determine if we're in the active window
         if start_minutes <= end_minutes:
-            # Normal case: e.g., 08:00 - 22:00
             in_window = start_minutes <= current_minutes < end_minutes
         else:
-            # Overnight case: e.g., 22:00 - 06:00
             in_window = current_minutes >= start_minutes or current_minutes < end_minutes
 
-        # Get current status
         status = WranglerClient.get_status(instance)
 
         if in_window:
-            # Should be running
             if last_action != "started" and not status.is_executing:
-                # Start or resume based on config.use_resume
                 schedule_data["last_action"] = "started"
 
                 def do_start(inst=instance, use_resume=config.use_resume):
@@ -1540,44 +1798,37 @@ class WranglerMasterApp:
                         success, message = WranglerClient.run_order(inst, json_path=self.default_json_path)
                         action = "Started"
 
-                    self.root.after(0, lambda: self._set_status(
+                    self.after(0, lambda: self._set_status(
                         f"{inst.name}: {action} (schedule)" if success else f"{inst.name} failed: {message}"
                     ))
                     time.sleep(1)
                     st = WranglerClient.get_status(inst)
-                    self.root.after(0, lambda: self._update_panel(inst, st))
+                    self.after(0, lambda: self._update_panel(inst, st))
 
                 threading.Thread(target=do_start, daemon=True).start()
         else:
-            # Should be stopped
             if last_action != "stopped" and status.is_executing:
-                # Stop
                 schedule_data["last_action"] = "stopped"
 
                 def do_stop(inst=instance):
-                    success, _ = WranglerClient.stop_gently(inst)
-                    self.root.after(0, lambda: self._set_status(
-                        f"{inst.name}: Stopped (schedule)"
-                    ))
+                    WranglerClient.stop_gently(inst)
+                    self.after(0, lambda: self._set_status(f"{inst.name}: Stopped (schedule)"))
                     time.sleep(2)
                     st = WranglerClient.get_status(inst)
-                    self.root.after(0, lambda: self._update_panel(inst, st))
+                    self.after(0, lambda: self._update_panel(inst, st))
 
-                    # Go home if enabled
                     if inst.go_home_after_session:
-                        time.sleep(3)  # Wait for stop to complete
+                        time.sleep(3)
                         success, msg = WranglerClient.go_home(inst)
-                        self.root.after(0, lambda: self._set_status(
-                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed: {msg}"
+                        self.after(0, lambda: self._set_status(
+                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed"
                         ))
 
                 threading.Thread(target=do_stop, daemon=True).start()
 
     def _on_panel_remove(self, instance: WranglerInstance):
         """Handles remove button click from a panel."""
-        if messagebox.askyesno("Remove Instance",
-                               f"Remove '{instance.name}' from the list?"):
-            # Clean up any active timers/schedules for this instance
+        if messagebox.askyesno("Remove Instance", f"Remove '{instance.name}' from the list?"):
             key = f"{instance.host}:{instance.port}"
             if key in self.active_timers:
                 del self.active_timers[key]
@@ -1598,6 +1849,8 @@ class WranglerMasterApp:
             )
             if not path:
                 return
+            self.default_json_path = path
+            self._save_config()
         else:
             path = self.default_json_path
 
@@ -1617,11 +1870,8 @@ class WranglerMasterApp:
                 else:
                     failures += 1
 
-            self.root.after(0, lambda: self._set_status(
-                f"Started {successes} instances, {failures} failed"
-            ))
+            self.after(0, lambda: self._set_status(f"Started {successes} instances, {failures} failed"))
 
-            # Refresh all after delay
             time.sleep(2)
             self._refresh_all_async()
 
@@ -1646,11 +1896,8 @@ class WranglerMasterApp:
                 else:
                     failures += 1
 
-            self.root.after(0, lambda: self._set_status(
-                f"Stopped {successes} instances, {failures} failed"
-            ))
+            self.after(0, lambda: self._set_status(f"Stopped {successes} instances, {failures} failed"))
 
-            # Refresh all after delay
             time.sleep(2)
             self._refresh_all_async()
 
@@ -1670,7 +1917,6 @@ class WranglerMasterApp:
                 if not instance.enabled:
                     continue
 
-                # First check if instance has incomplete orders
                 status = WranglerClient.get_status(instance)
                 if not status.reachable:
                     failures += 1
@@ -1690,11 +1936,10 @@ class WranglerMasterApp:
                 else:
                     failures += 1
 
-            self.root.after(0, lambda: self._set_status(
+            self.after(0, lambda: self._set_status(
                 f"Resumed {successes} instances, {failures} failed, {skipped} skipped"
             ))
 
-            # Refresh all after delay
             time.sleep(2)
             self._refresh_all_async()
 
@@ -1729,147 +1974,58 @@ class WranglerMasterApp:
                 for data in config.get("instances", [])
             ]
             self.default_json_path = config.get("default_json_path", "")
+
+            if self.default_json_path:
+                self.json_label.configure(text=f"JSON: {os.path.basename(self.default_json_path)}")
+
             self._refresh_panels()
             self._set_status(f"Loaded {len(self.instances)} instances")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load config: {e}")
 
-    def _load_config_dialog(self):
-        """Shows dialog to load config from a different file."""
-        path = filedialog.askopenfilename(
-            title="Load Configuration",
-            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
-        )
-        if path:
-            global CONFIG_FILE
-            CONFIG_FILE = path
-            self._load_config()
+    def _save_app_settings(self):
+        """Saves application settings."""
+        settings_file = SCRIPT_DIR / "app_settings.json"
+        settings = {
+            "appearance_mode": self.app_settings.appearance_mode,
+            "color_theme": self.app_settings.color_theme,
+            "background_image": self.app_settings.background_image
+        }
+
+        try:
+            with open(settings_file, "w") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save app settings: {e}")
+
+    def _load_app_settings(self):
+        """Loads application settings."""
+        settings_file = SCRIPT_DIR / "app_settings.json"
+
+        if not settings_file.exists():
+            return
+
+        try:
+            with open(settings_file, "r") as f:
+                settings = json.load(f)
+
+            self.app_settings.appearance_mode = settings.get("appearance_mode", "dark")
+            self.app_settings.color_theme = settings.get("color_theme", "wrangler")
+            self.app_settings.background_image = settings.get("background_image", "")
+
+        except Exception as e:
+            print(f"Failed to load app settings: {e}")
 
     def _set_status(self, message: str):
         """Updates the status bar message."""
-        self.status_bar.config(text=message)
+        self.status_label.configure(text=message)
 
     def _on_close(self):
         """Handles window close."""
         self.polling_active = False
         self._save_config()
-        self.root.destroy()
-
-
-# =============================================================================
-# Add Instance Dialog
-# =============================================================================
-
-class AddInstanceDialog(tk.Toplevel):
-    """Dialog for adding a new Wrangler instance."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Add Wrangler Instance")
-        self.geometry("400x200")
-        self.minsize(400, 200)
-        self.resizable(True, True)
-        self.configure(bg="#2d2d30")
-
-        self.result = None
-
-        self._create_widgets()
-
-        # Make dialog modal
-        self.transient(parent)
-        self.grab_set()
-
-        # Center on parent
-        self.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
-
-    def _create_widgets(self):
-        """Creates dialog widgets."""
-        # Button frame at the bottom (pack first so it stays at bottom when resizing)
-        btn_frame = tk.Frame(self, bg="#2d2d30")
-        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
-
-        tk.Button(
-            btn_frame, text="Cancel", font=("Segoe UI", 10),
-            bg="#666666", fg="white", relief=tk.FLAT, width=10,
-            command=self.destroy
-        ).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(
-            btn_frame, text="Add", font=("Segoe UI", 10, "bold"),
-            bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
-            command=self._on_add
-        ).pack(side=tk.RIGHT, padx=5)
-
-        # Content frame that expands
-        content_frame = tk.Frame(self, bg="#2d2d30")
-        content_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # Name field
-        name_frame = tk.Frame(content_frame, bg="#2d2d30")
-        name_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
-
-        tk.Label(
-            name_frame, text="Name:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.name_entry = tk.Entry(name_frame, font=("Segoe UI", 10))
-        self.name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
-        self.name_entry.insert(0, "Account 1")
-
-        # Host field
-        host_frame = tk.Frame(content_frame, bg="#2d2d30")
-        host_frame.pack(fill=tk.X, padx=20, pady=10)
-
-        tk.Label(
-            host_frame, text="Host:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.host_entry = tk.Entry(host_frame, font=("Segoe UI", 10))
-        self.host_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
-        self.host_entry.insert(0, "localhost")
-
-        # Port field
-        port_frame = tk.Frame(content_frame, bg="#2d2d30")
-        port_frame.pack(fill=tk.X, padx=20, pady=10)
-
-        tk.Label(
-            port_frame, text="Port:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.port_entry = tk.Entry(port_frame, font=("Segoe UI", 10))
-        self.port_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
-        self.port_entry.insert(0, "7800")
-
-    def _on_add(self):
-        """Validates and returns result."""
-        name = self.name_entry.get().strip()
-        host = self.host_entry.get().strip()
-        port_str = self.port_entry.get().strip()
-
-        if not name:
-            messagebox.showerror("Error", "Name is required")
-            return
-
-        if not host:
-            messagebox.showerror("Error", "Host is required")
-            return
-
-        try:
-            port = int(port_str)
-            if port < 1 or port > 65535:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror("Error", "Port must be a number between 1 and 65535")
-            return
-
-        self.result = (name, host, port)
+        self._save_app_settings()
         self.destroy()
 
 
@@ -1879,16 +2035,11 @@ class AddInstanceDialog(tk.Toplevel):
 
 def main():
     """Application entry point."""
-    root = tk.Tk()
+    # Create themes directory if it doesn't exist
+    THEMES_DIR.mkdir(exist_ok=True)
 
-    # Set dark theme for ttk widgets
-    style = ttk.Style()
-    style.theme_use("clam")
-    style.configure("TFrame", background="#1e1e1e")
-    style.configure("TScrollbar", background="#2d2d30", troughcolor="#1e1e1e")
-
-    app = WranglerMasterApp(root)
-    root.mainloop()
+    app = WranglerMasterApp()
+    app.mainloop()
 
 
 if __name__ == "__main__":
