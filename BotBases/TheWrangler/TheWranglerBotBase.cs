@@ -316,7 +316,8 @@ namespace TheWrangler
 
         /// <summary>
         /// Executes a resume order using RequestRestart.
-        /// RequestRestart is fire-and-forget, so we poll for completion.
+        /// RequestRestart is fire-and-forget and shows an Expansion confirmation dialog.
+        /// We automatically click Yes on the dialog, then poll for completion.
         /// </summary>
         private async Task ExecuteResumeOrderAsync(string json)
         {
@@ -324,8 +325,59 @@ namespace TheWrangler
 
             try
             {
+                // Initialize the dialog helper for auto-clicking the Expansion dialog
+                var dialogHelper = new ExpansionDialogHelper();
+                if (!dialogHelper.Initialize())
+                {
+                    Log("Warning: Could not initialize dialog helper. Manual dialog confirmation may be required.");
+                }
+
                 // RequestRestart doesn't re-expand suborders - it uses them as-is
+                // This will show an "Expansion" confirmation dialog
                 _controller.LisbethApi.RequestRestart(json);
+
+                // Wait for the Expansion dialog to appear and click Yes
+                // Give it up to 30 seconds to appear (it may take time to load)
+                const int dialogPollIntervalMs = 500;
+                const int maxDialogPolls = 60; // 30 seconds
+                bool dialogClicked = false;
+
+                Log("Waiting for Expansion confirmation dialog...");
+                for (int i = 0; i < maxDialogPolls; i++)
+                {
+                    await Coroutine.Sleep(dialogPollIntervalMs);
+
+                    // Check if there's a dialog and try to click it
+                    if (dialogHelper.HasExpansionDialog())
+                    {
+                        Log("Expansion dialog detected, clicking Yes...");
+                        int clicked = dialogHelper.TryClickAllExpansionDialogs();
+                        if (clicked > 0)
+                        {
+                            Log($"Successfully clicked Yes on {clicked} dialog(s).");
+                            dialogClicked = true;
+                            break;
+                        }
+                    }
+
+                    // Also check if orders have already started (dialog was clicked manually or didn't appear)
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    if (!string.IsNullOrWhiteSpace(activeOrders) && activeOrders != "{}" && activeOrders != "[]")
+                    {
+                        Log("Orders already active, dialog may have been confirmed manually.");
+                        dialogClicked = true;
+                        break;
+                    }
+                }
+
+                if (!dialogClicked)
+                {
+                    Log("Warning: Expansion dialog not detected or could not be clicked. Orders may not have started.");
+                    // Continue anyway - maybe it was clicked manually or the dialog behavior changed
+                }
+
+                // Small delay to let orders start processing
+                await Coroutine.Sleep(1000);
 
                 // Poll for completion - check if there are still active orders
                 // We'll poll every 2 seconds for up to 8 hours (max reasonable runtime)
