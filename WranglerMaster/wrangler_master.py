@@ -447,8 +447,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Run",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=70,
             height=28,
             command=self._on_run_click
@@ -458,8 +458,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Resume",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#3498db",
-            hover_color="#2980b9",
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=70,
             height=28,
             command=self._on_resume_click
@@ -469,8 +469,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Stop",
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#e67e22",
-            hover_color="#d35400",
+            fg_color="#1565c0",
+            hover_color="#0d47a1",
             width=70,
             height=28,
             command=self._on_stop_click
@@ -480,8 +480,8 @@ class InstancePanel(ctk.CTkFrame):
             self.button_frame,
             text="Advanced",
             font=ctk.CTkFont(size=11),
-            fg_color="#9b59b6",
-            hover_color="#8e44ad",
+            fg_color="#1976d2",
+            hover_color="#1565c0",
             width=70,
             height=28,
             command=self._on_advanced_click
@@ -888,8 +888,8 @@ class AdvancedRunDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Start",
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=100,
             command=self._on_start
         ).pack(side="right", padx=5)
@@ -897,8 +897,8 @@ class AdvancedRunDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Save",
-            fg_color="#3498db",
-            hover_color="#2980b9",
+            fg_color="#1976d2",
+            hover_color="#1565c0",
             width=100,
             command=self._on_save
         ).pack(side="right", padx=5)
@@ -915,7 +915,7 @@ class AdvancedRunDialog(ctk.CTkToplevel):
                                    (self.timer_frame, "timer"),
                                    (self.schedule_frame, "schedule")]:
             if mode == frame_mode:
-                frame.configure(border_width=2, border_color="#9b59b6")
+                frame.configure(border_width=2, border_color="#2196f3")
             else:
                 frame.configure(border_width=0)
 
@@ -1042,8 +1042,8 @@ class AddInstanceDialog(ctk.CTkToplevel):
         ctk.CTkButton(
             btn_frame,
             text="Add",
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=100,
             command=self._on_add
         ).pack(side="right", padx=5)
@@ -1370,6 +1370,8 @@ class WranglerMasterApp(ctk.CTk):
         # Background image
         self.bg_image = None
         self.bg_label = None
+        self._cached_bg_pil = None  # Cache the processed PIL image
+        self._resize_job = None  # For debouncing resize events
 
         # Create UI
         self._create_ui()
@@ -1415,26 +1417,34 @@ class WranglerMasterApp(ctk.CTk):
         """Sets up background image if configured."""
         if self.app_settings.background_image and os.path.exists(self.app_settings.background_image):
             try:
-                img = self._load_background_with_opacity(
-                    self.winfo_screenwidth(),
-                    self.winfo_screenheight()
-                )
-                if img:
+                # Load and cache the PIL image (original size)
+                self._cached_bg_pil = self._load_background_with_opacity()
+                if self._cached_bg_pil:
+                    # Get initial size
+                    width = max(self.winfo_width(), 950)
+                    height = max(self.winfo_height(), 750)
+
+                    # Resize cached image for display
+                    resized = self._cached_bg_pil.resize((width, height), Image.Resampling.LANCZOS)
+
                     self.bg_image = ctk.CTkImage(
-                        light_image=img,
-                        dark_image=img,
-                        size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                        light_image=resized,
+                        dark_image=resized,
+                        size=(width, height)
                     )
                     self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
                     self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-                    # Bind resize event to update background
+                    # CRITICAL: Lower the background behind all other widgets
+                    self.bg_label.lower()
+
+                    # Bind resize event to update background (debounced)
                     self.bind("<Configure>", self._on_resize)
             except Exception as e:
                 print(f"Failed to load background image: {e}")
 
-    def _load_background_with_opacity(self, width: int, height: int) -> Optional[Image.Image]:
-        """Loads background image and applies opacity setting."""
+    def _load_background_with_opacity(self) -> Optional[Image.Image]:
+        """Loads background image and applies opacity setting. Returns original size."""
         if not self.app_settings.background_image:
             return None
 
@@ -1466,23 +1476,42 @@ class WranglerMasterApp(ctk.CTk):
             return None
 
     def _on_resize(self, event=None):
-        """Updates background image size on window resize."""
-        if self.bg_image and self.app_settings.background_image:
-            try:
-                img = self._load_background_with_opacity(
-                    self.winfo_width(),
-                    self.winfo_height()
-                )
-                if img:
-                    self.bg_image = ctk.CTkImage(
-                        light_image=img,
-                        dark_image=img,
-                        size=(self.winfo_width(), self.winfo_height())
-                    )
-                    if self.bg_label:
-                        self.bg_label.configure(image=self.bg_image)
-            except:
-                pass
+        """Updates background image size on window resize (debounced)."""
+        if not self._cached_bg_pil or not self.bg_label:
+            return
+
+        # Cancel any pending resize job
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+
+        # Schedule the actual resize after 100ms of no resize events
+        self._resize_job = self.after(100, self._do_resize)
+
+    def _do_resize(self):
+        """Actually performs the background resize."""
+        self._resize_job = None
+
+        if not self._cached_bg_pil or not self.bg_label:
+            return
+
+        try:
+            width = self.winfo_width()
+            height = self.winfo_height()
+
+            if width < 10 or height < 10:
+                return
+
+            # Resize from cached PIL image (fast)
+            resized = self._cached_bg_pil.resize((width, height), Image.Resampling.LANCZOS)
+
+            self.bg_image = ctk.CTkImage(
+                light_image=resized,
+                dark_image=resized,
+                size=(width, height)
+            )
+            self.bg_label.configure(image=self.bg_image)
+        except Exception:
+            pass
 
     def _create_toolbar(self):
         """Creates the toolbar with master controls."""
@@ -1544,8 +1573,8 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Stop All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#e67e22",
-            hover_color="#d35400",
+            fg_color="#1565c0",
+            hover_color="#0d47a1",
             width=90,
             height=32,
             command=self._stop_all
@@ -1556,8 +1585,8 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Resume All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#1565c0",
-            hover_color="#0d47a1",
+            fg_color="#1976d2",
+            hover_color="#1565c0",
             width=100,
             height=32,
             command=self._resume_all
@@ -1568,8 +1597,8 @@ class WranglerMasterApp(ctk.CTk):
             btn_frame,
             text="Start All",
             font=self.get_font(size=12, weight="bold"),
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=90,
             height=32,
             command=self._start_all
@@ -1702,11 +1731,18 @@ class WranglerMasterApp(ctk.CTk):
         # Apply appearance mode immediately
         ctk.set_appearance_mode(settings.appearance_mode)
 
-        # Update background
+        # Clear cached background and update
+        self._cached_bg_pil = None
         if self.bg_label:
             self.bg_label.destroy()
             self.bg_label = None
+            self.bg_image = None
+
         self._setup_background()
+
+        # Ensure background stays behind main container
+        if self.bg_label and hasattr(self, 'main_container'):
+            self.bg_label.lower()
 
         self._set_status("Settings saved. Theme/font changes require restart.")
 
