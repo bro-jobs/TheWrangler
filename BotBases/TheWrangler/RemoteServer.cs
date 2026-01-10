@@ -395,18 +395,11 @@ namespace TheWrangler
         {
             // Get character info if available
             string characterName = "Unknown";
-            string worldName = "Unknown";
             try
             {
                 if (ff14bot.Core.Me != null)
                 {
                     characterName = ff14bot.Core.Me.Name ?? "Unknown";
-                    // Try to get the home world name
-                    var homeWorld = ff14bot.Core.Me.HomeWorld;
-                    if (homeWorld != null)
-                    {
-                        worldName = homeWorld.Name ?? "Unknown";
-                    }
                 }
             }
             catch
@@ -424,7 +417,6 @@ namespace TheWrangler
                 apiStatus = _controller.ApiStatus,
                 botRunning = TheWranglerBotBase.IsBotRunning,
                 characterName = characterName,
-                worldName = worldName,
                 runtimeSeconds = _controller.ExecutionRuntimeSeconds,
                 timestamp = DateTime.UtcNow.ToString("o")
             };
