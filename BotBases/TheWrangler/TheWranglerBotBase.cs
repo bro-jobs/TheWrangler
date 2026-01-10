@@ -67,7 +67,6 @@ namespace TheWrangler
 
         // Pending async debug command (for /test5 go home)
         private Action<string> _pendingGoHomeCallback;
-        private readonly LisbethHomeHelper _homeHelper = new LisbethHomeHelper();
 
         #endregion
 
@@ -215,6 +214,7 @@ namespace TheWrangler
 
         /// <summary>
         /// Executes the pending "go home" action.
+        /// Creates helper on-demand to ensure Lisbeth is fully initialized.
         /// </summary>
         private async Task ExecuteGoHomeAsync()
         {
@@ -224,7 +224,10 @@ namespace TheWrangler
             try
             {
                 Log("Executing Go Home navigation...");
-                var result = await _homeHelper.GoHomeAsync();
+
+                // Create helper on-demand so Lisbeth's travel API is available
+                var homeHelper = new LisbethHomeHelper();
+                var result = await homeHelper.GoHomeAsync();
 
                 if (result.Success)
                 {
