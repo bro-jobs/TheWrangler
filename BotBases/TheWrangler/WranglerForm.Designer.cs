@@ -58,6 +58,8 @@ namespace TheWrangler
         private void InitializeComponent()
         {
             this.pnlMain = new System.Windows.Forms.Panel();
+            this.pnlOverlay = new System.Windows.Forms.Panel();
+            this.lblOverlayMessage = new System.Windows.Forms.Label();
             this.lblTitle = new System.Windows.Forms.Label();
             this.tabControl = new System.Windows.Forms.TabControl();
 
@@ -110,6 +112,33 @@ namespace TheWrangler
             this.pnlClassLevels.SuspendLayout();
             this.pnlMissingItems.SuspendLayout();
             this.SuspendLayout();
+
+            //
+            // pnlOverlay - Semi-transparent overlay when wrong bot is selected
+            //
+            this.pnlOverlay.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.pnlOverlay.BackColor = System.Drawing.Color.FromArgb(180, 255, 255, 255);
+            this.pnlOverlay.Controls.Add(this.lblOverlayMessage);
+            this.pnlOverlay.Location = new System.Drawing.Point(0, 0);
+            this.pnlOverlay.Name = "pnlOverlay";
+            this.pnlOverlay.Size = new System.Drawing.Size(584, 561);
+            this.pnlOverlay.TabIndex = 100;
+            this.pnlOverlay.Visible = false;
+
+            //
+            // lblOverlayMessage - Message shown on overlay
+            //
+            this.lblOverlayMessage.Anchor = System.Windows.Forms.AnchorStyles.None;
+            this.lblOverlayMessage.Font = new System.Drawing.Font("Segoe UI", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblOverlayMessage.ForeColor = System.Drawing.Color.FromArgb(60, 60, 60);
+            this.lblOverlayMessage.Location = new System.Drawing.Point(92, 250);
+            this.lblOverlayMessage.Name = "lblOverlayMessage";
+            this.lblOverlayMessage.Size = new System.Drawing.Size(400, 60);
+            this.lblOverlayMessage.TabIndex = 0;
+            this.lblOverlayMessage.Text = "Please select TheWrangler as the\r\nactive bot in RebornBuddy";
+            this.lblOverlayMessage.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
 
             //
             // pnlMain - Main container panel
@@ -622,6 +651,7 @@ namespace TheWrangler
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(584, 561);
+            this.Controls.Add(this.pnlOverlay);
             this.Controls.Add(this.pnlMain);
             this.MinimumSize = new System.Drawing.Size(500, 500);
             this.Name = "WranglerForm";
@@ -649,6 +679,8 @@ namespace TheWrangler
 
         // Main container controls
         private System.Windows.Forms.Panel pnlMain;
+        private System.Windows.Forms.Panel pnlOverlay;
+        private System.Windows.Forms.Label lblOverlayMessage;
         private System.Windows.Forms.Label lblTitle;
         private System.Windows.Forms.TabControl tabControl;
 
