@@ -38,6 +38,8 @@ namespace TheWrangler
         #region Fields
 
         private readonly WranglerController _controller;
+        private System.Windows.Forms.Timer _botCheckTimer;
+        private bool _hasPromptedResume;
 
         #endregion
 
@@ -101,6 +103,18 @@ namespace TheWrangler
 
             // Apply modern styling
             ApplyModernStyling();
+
+            // Set up timer to check bot selection and show overlay if needed
+            _botCheckTimer = new System.Windows.Forms.Timer();
+            _botCheckTimer.Interval = 1000; // Check every second
+            _botCheckTimer.Tick += OnBotCheckTimer_Tick;
+            _botCheckTimer.Start();
+
+            // Initial bot selection check
+            UpdateBotSelectionOverlay();
+
+            // Check for resume file and prompt user on first open
+            CheckForResumeFileOnStartup();
         }
 
         /// <summary>
@@ -977,6 +991,14 @@ namespace TheWrangler
             WranglerSettings.Instance.WindowY = this.Location.Y;
             WranglerSettings.Instance.Save();
 
+            // Cleanup timer
+            if (_botCheckTimer != null)
+            {
+                _botCheckTimer.Stop();
+                _botCheckTimer.Dispose();
+                _botCheckTimer = null;
+            }
+
             // Cleanup Order Mode
             _controller.StatusChanged -= OnStatusChanged;
             _controller.LogMessage -= OnLogMessage;
@@ -989,6 +1011,75 @@ namespace TheWrangler
             _controller.LevelingController.ClassLevelsUpdated -= OnClassLevelsUpdated;
 
             Instance = null;
+        }
+
+        #endregion
+
+        #region Bot Selection and Resume Detection
+
+        /// <summary>
+        /// Timer tick handler to check if the correct bot is selected.
+        /// </summary>
+        private void OnBotCheckTimer_Tick(object sender, EventArgs e)
+        {
+            UpdateBotSelectionOverlay();
+        }
+
+        /// <summary>
+        /// Shows or hides the overlay based on whether TheWrangler is the selected bot.
+        /// </summary>
+        private void UpdateBotSelectionOverlay()
+        {
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(UpdateBotSelectionOverlay));
+                return;
+            }
+
+            bool isWranglerSelected = WranglerController.IsWranglerSelectedBot();
+            pnlOverlay.Visible = !isWranglerSelected;
+
+            // Bring overlay to front when visible
+            if (pnlOverlay.Visible)
+            {
+                pnlOverlay.BringToFront();
+            }
+        }
+
+        /// <summary>
+        /// Checks for lisbeth-resume.json on startup and prompts user to resume if found.
+        /// </summary>
+        private void CheckForResumeFileOnStartup()
+        {
+            if (_hasPromptedResume)
+                return;
+
+            _hasPromptedResume = true;
+
+            // Check if resume file exists
+            if (_controller.HasResumeFile())
+            {
+                LogToUI("Resume file detected (lisbeth-resume.json)", Color.LightBlue);
+
+                // Only show the prompt if TheWrangler is the selected bot
+                if (WranglerController.IsWranglerSelectedBot())
+                {
+                    // Show dialog asking user if they want to resume
+                    var result = MessageBox.Show(
+                        "Incomplete orders were detected from a previous session.\n\n" +
+                        "Would you like to resume these orders?\n\n" +
+                        "Click 'Yes' to resume incomplete orders now.\n" +
+                        "Click 'No' to dismiss (you can use Resume All later).",
+                        "Resume Incomplete Orders?",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        ResumeIncompleteOrders();
+                    }
+                }
+            }
         }
 
         #endregion
@@ -1022,7 +1113,14 @@ namespace TheWrangler
 
             // Order Mode
             btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
-            btnResumeAll.Enabled = !_controller.IsExecuting && _controller.HasIncompleteOrders();
+
+            // Resume All button is enabled if:
+            // 1. Not currently executing
+            // 2. Either the resume file exists OR there are incomplete orders in memory
+            bool canResume = !_controller.IsExecuting &&
+                (_controller.HasResumeFile() || _controller.HasIncompleteOrders());
+            btnResumeAll.Enabled = canResume;
+
             btnStopGently.Enabled = _controller.IsExecuting;
             if (!_controller.IsExecuting)
             {

@@ -21,7 +21,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
+using ff14bot;
 using ff14bot.Helpers;
+using ff14bot.Managers;
 
 namespace TheWrangler
 {
@@ -416,6 +419,109 @@ namespace TheWrangler
             }
 
             return _lisbethApi.GetIncompleteOrders();
+        }
+
+        /// <summary>
+        /// Returns true if the lisbeth-resume.json file exists for the current character.
+        /// This file is created when Lisbeth is stopped mid-execution and indicates
+        /// there are incomplete orders that can be resumed.
+        /// </summary>
+        public bool HasResumeFile()
+        {
+            try
+            {
+                var resumeFilePath = GetResumeFilePath();
+                return !string.IsNullOrEmpty(resumeFilePath) && File.Exists(resumeFilePath);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error checking resume file: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Gets the path to the lisbeth-resume.json file for the current character.
+        /// Returns null if the path cannot be determined.
+        /// </summary>
+        public string GetResumeFilePath()
+        {
+            try
+            {
+                var settingsFolder = FindCharacterSettingsFolder();
+                if (settingsFolder == null)
+                {
+                    return null;
+                }
+
+                return Path.Combine(settingsFolder, "lisbeth-resume.json");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Finds the Lisbeth settings folder for the current character.
+        /// Folder pattern: {CharacterName}_World{WorldId}
+        /// </summary>
+        private string FindCharacterSettingsFolder()
+        {
+            try
+            {
+                var settingsRoot = Path.Combine(Environment.CurrentDirectory, "Settings");
+                if (!Directory.Exists(settingsRoot))
+                {
+                    return null;
+                }
+
+                var characterName = Core.Me?.Name;
+                if (string.IsNullOrEmpty(characterName))
+                {
+                    return null;
+                }
+
+                // Look for folders that start with the character name
+                var characterFolders = Directory.GetDirectories(settingsRoot)
+                    .Where(d => Path.GetFileName(d).StartsWith(characterName + "_World", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (characterFolders.Count == 0)
+                {
+                    return null;
+                }
+
+                var folder = characterFolders.First();
+
+                // Verify it has lisbethV4.json (indicates it's a valid Lisbeth settings folder)
+                if (File.Exists(Path.Combine(folder, "lisbethV4.json")))
+                {
+                    return folder;
+                }
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Returns true if TheWrangler is the currently selected bot in RebornBuddy.
+        /// </summary>
+        public static bool IsWranglerSelectedBot()
+        {
+            try
+            {
+                var currentBot = BotManager.Current;
+                return currentBot != null && currentBot.Name == "TheWrangler";
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
