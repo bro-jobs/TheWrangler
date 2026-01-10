@@ -166,6 +166,7 @@ class AppSettings:
     appearance_mode: str = "dark"  # "light", "dark", "system"
     color_theme: str = "wrangler"  # "blue", "dark-blue", "green", "wrangler"
     background_image: str = ""  # Path to custom background image
+    background_opacity: float = 0.3  # 0.0 (invisible) to 1.0 (fully visible)
 
 
 # =============================================================================
@@ -1062,14 +1063,18 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, settings: AppSettings, on_apply: Callable):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("450x400")
-        self.minsize(450, 400)
+        self.geometry("500x500")
+        self.minsize(500, 500)
         self.resizable(True, True)
 
         self.settings = settings
         self.on_apply = on_apply
+        self._auto_save_enabled = False  # Prevent saves during init
 
         self._create_widgets()
+
+        # Enable auto-save after widgets are created
+        self._auto_save_enabled = True
 
         # Make dialog modal
         self.transient(parent)
@@ -1104,6 +1109,7 @@ class SettingsDialog(ctk.CTkToplevel):
             mode_frame,
             values=["light", "dark", "system"],
             variable=self.appearance_var,
+            command=self._on_setting_changed,
             width=200
         )
         self.appearance_menu.pack(side="left")
@@ -1118,6 +1124,7 @@ class SettingsDialog(ctk.CTkToplevel):
             theme_frame,
             values=AVAILABLE_THEMES,
             variable=self.theme_var,
+            command=self._on_setting_changed,
             width=200
         )
         self.theme_menu.pack(side="left")
@@ -1151,6 +1158,30 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._browse_background
         ).pack(side="left")
 
+        # Opacity slider
+        opacity_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        opacity_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(opacity_frame, text="Opacity:", width=120).pack(side="left")
+
+        self.opacity_var = ctk.DoubleVar(value=self.settings.background_opacity)
+        self.opacity_slider = ctk.CTkSlider(
+            opacity_frame,
+            from_=0.0,
+            to=1.0,
+            variable=self.opacity_var,
+            command=self._on_opacity_changed,
+            width=180
+        )
+        self.opacity_slider.pack(side="left", padx=(0, 10))
+
+        self.opacity_label = ctk.CTkLabel(
+            opacity_frame,
+            text=f"{int(self.settings.background_opacity * 100)}%",
+            width=40
+        )
+        self.opacity_label.pack(side="left")
+
         # Clear background button
         clear_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         clear_frame.pack(fill="x", pady=5)
@@ -1167,9 +1198,10 @@ class SettingsDialog(ctk.CTkToplevel):
         # Note about theme changes
         note_label = ctk.CTkLabel(
             main_frame,
-            text="Note: Theme changes require restart to take full effect.",
+            text="Note: Theme changes require restart to take full effect.\nOther settings are applied immediately.",
             font=ctk.CTkFont(size=11),
-            text_color="gray"
+            text_color="gray",
+            justify="left"
         )
         note_label.pack(anchor="w", pady=(30, 0))
 
@@ -1179,21 +1211,24 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(
             btn_frame,
-            text="Cancel",
+            text="Close",
             fg_color="gray",
             hover_color="gray30",
             width=100,
             command=self.destroy
         ).pack(side="right", padx=5)
 
-        ctk.CTkButton(
-            btn_frame,
-            text="Apply",
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
-            width=100,
-            command=self._on_apply
-        ).pack(side="right", padx=5)
+    def _on_setting_changed(self, value=None):
+        """Called when any setting changes - auto-saves."""
+        if not self._auto_save_enabled:
+            return
+        self._apply_settings()
+
+    def _on_opacity_changed(self, value):
+        """Called when opacity slider changes."""
+        self.opacity_label.configure(text=f"{int(value * 100)}%")
+        if self._auto_save_enabled:
+            self._apply_settings()
 
     def _browse_background(self):
         """Opens file dialog to select background image."""
@@ -1206,18 +1241,20 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         if path:
             self.bg_path_var.set(path)
+            self._apply_settings()
 
     def _clear_background(self):
         """Clears the background image selection."""
         self.bg_path_var.set("")
+        self._apply_settings()
 
-    def _on_apply(self):
-        """Applies settings and closes dialog."""
+    def _apply_settings(self):
+        """Applies current settings immediately."""
         self.settings.appearance_mode = self.appearance_var.get()
         self.settings.color_theme = self.theme_var.get()
         self.settings.background_image = self.bg_path_var.get()
+        self.settings.background_opacity = self.opacity_var.get()
         self.on_apply(self.settings)
-        self.destroy()
 
 
 # =============================================================================
@@ -1293,32 +1330,72 @@ class WranglerMasterApp(ctk.CTk):
         """Sets up background image if configured."""
         if self.app_settings.background_image and os.path.exists(self.app_settings.background_image):
             try:
-                img = Image.open(self.app_settings.background_image)
-                self.bg_image = ctk.CTkImage(
-                    light_image=img,
-                    dark_image=img,
-                    size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                img = self._load_background_with_opacity(
+                    self.winfo_screenwidth(),
+                    self.winfo_screenheight()
                 )
-                self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
-                self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+                if img:
+                    self.bg_image = ctk.CTkImage(
+                        light_image=img,
+                        dark_image=img,
+                        size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                    )
+                    self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
+                    self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-                # Bind resize event to update background
-                self.bind("<Configure>", self._on_resize)
+                    # Bind resize event to update background
+                    self.bind("<Configure>", self._on_resize)
             except Exception as e:
                 print(f"Failed to load background image: {e}")
+
+    def _load_background_with_opacity(self, width: int, height: int) -> Optional[Image.Image]:
+        """Loads background image and applies opacity setting."""
+        if not self.app_settings.background_image:
+            return None
+
+        try:
+            img = Image.open(self.app_settings.background_image).convert("RGBA")
+
+            # Apply opacity by blending with a dark or light background
+            opacity = self.app_settings.background_opacity
+
+            # Determine base color based on appearance mode
+            mode = self.app_settings.appearance_mode
+            if mode == "system":
+                # Default to dark for system
+                base_color = (26, 26, 26, 255)  # Dark background
+            elif mode == "light":
+                base_color = (232, 232, 232, 255)  # Light background
+            else:
+                base_color = (26, 26, 26, 255)  # Dark background
+
+            # Create base image
+            base = Image.new("RGBA", img.size, base_color)
+
+            # Blend: base * (1 - opacity) + img * opacity
+            blended = Image.blend(base, img, opacity)
+
+            return blended.convert("RGB")
+        except Exception as e:
+            print(f"Failed to process background image: {e}")
+            return None
 
     def _on_resize(self, event=None):
         """Updates background image size on window resize."""
         if self.bg_image and self.app_settings.background_image:
             try:
-                img = Image.open(self.app_settings.background_image)
-                self.bg_image = ctk.CTkImage(
-                    light_image=img,
-                    dark_image=img,
-                    size=(self.winfo_width(), self.winfo_height())
+                img = self._load_background_with_opacity(
+                    self.winfo_width(),
+                    self.winfo_height()
                 )
-                if self.bg_label:
-                    self.bg_label.configure(image=self.bg_image)
+                if img:
+                    self.bg_image = ctk.CTkImage(
+                        light_image=img,
+                        dark_image=img,
+                        size=(self.winfo_width(), self.winfo_height())
+                    )
+                    if self.bg_label:
+                        self.bg_label.configure(image=self.bg_image)
             except:
                 pass
 
@@ -2013,7 +2090,8 @@ class WranglerMasterApp(ctk.CTk):
         settings = {
             "appearance_mode": self.app_settings.appearance_mode,
             "color_theme": self.app_settings.color_theme,
-            "background_image": self.app_settings.background_image
+            "background_image": self.app_settings.background_image,
+            "background_opacity": self.app_settings.background_opacity
         }
 
         try:
@@ -2036,6 +2114,7 @@ class WranglerMasterApp(ctk.CTk):
             self.app_settings.appearance_mode = settings.get("appearance_mode", "dark")
             self.app_settings.color_theme = settings.get("color_theme", "wrangler")
             self.app_settings.background_image = settings.get("background_image", "")
+            self.app_settings.background_opacity = settings.get("background_opacity", 0.3)
 
         except Exception as e:
             print(f"Failed to load app settings: {e}")
