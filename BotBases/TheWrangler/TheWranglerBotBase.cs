@@ -68,6 +68,9 @@ namespace TheWrangler
         // Pending async debug command (for /test5 go home)
         private Action<string> _pendingGoHomeCallback;
 
+        // Startup stabilization flag - prevents CoroutineStoppedException on first tick
+        private bool _startupStabilized;
+
         #endregion
 
         #region BotBase Properties
@@ -142,6 +145,7 @@ namespace TheWrangler
         public override void Start()
         {
             Log("TheWrangler started.");
+            _startupStabilized = false; // Reset for each start cycle
             _controller.Initialize();
         }
 
@@ -180,6 +184,16 @@ namespace TheWrangler
         /// </summary>
         private async Task<bool> MainLoopAsync()
         {
+            // Startup stabilization: Wait a tick before processing pending orders
+            // This prevents CoroutineStoppedException that can occur when the behavior
+            // tree is first initialized and the coroutine system isn't fully stable yet.
+            if (!_startupStabilized)
+            {
+                _startupStabilized = true;
+                await Coroutine.Yield();
+                return false;
+            }
+
             // Process any pending debug commands (runs on bot thread for memory access)
             while (_controller.TryGetDebugCommand(out var debugCmd))
             {
@@ -258,15 +272,8 @@ namespace TheWrangler
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
 
-            // For resume orders, use RequestRestart instead of ExecuteOrders
-            // RequestRestart doesn't re-expand suborders, which prevents duplication
-            if (isResume)
-            {
-                await ExecuteResumeOrderAsync(json);
-                return;
-            }
-
             // Retry once for CoroutineStoppedException - this can happen when
+            // the coroutine system is unstable (e.g., during startup) or when
             // Lisbeth's internal state is corrupted from a previous forced stop
             const int maxRetries = 1;
             int attempt = 0;
@@ -275,24 +282,32 @@ namespace TheWrangler
             {
                 try
                 {
-                    // Await Lisbeth directly - this is the key!
-                    // Lisbeth's ExecuteOrders is coroutine-compatible.
                     if (attempt > 0)
                     {
                         Log($"Retry attempt {attempt}...");
-                        // Small delay before retry to let Lisbeth clean up
+                        // Small delay before retry to let systems stabilize
                         await Coroutine.Sleep(500);
                     }
 
-                    bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
-
-                    _controller.OnOrderExecutionComplete(result);
+                    // For resume orders, use RequestRestart instead of ExecuteOrders
+                    // RequestRestart doesn't re-expand suborders, which prevents duplication
+                    if (isResume)
+                    {
+                        await ExecuteResumeOrderAsync(json);
+                    }
+                    else
+                    {
+                        // Await Lisbeth directly - this is the key!
+                        // Lisbeth's ExecuteOrders is coroutine-compatible.
+                        bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+                        _controller.OnOrderExecutionComplete(result);
+                    }
                     return; // Success - exit the retry loop
                 }
                 catch (Exception ex) when (ex.GetType().Name == "CoroutineStoppedException" && attempt < maxRetries)
                 {
-                    // This can happen when Lisbeth's internal state is corrupted
-                    // from a previous forced stop. Retry once.
+                    // This can happen when the coroutine system is unstable or
+                    // Lisbeth's internal state is corrupted. Retry once.
                     Log($"CoroutineStoppedException on attempt {attempt + 1}, will retry...");
                     attempt++;
                 }
@@ -318,6 +333,9 @@ namespace TheWrangler
         /// Executes a resume order using RequestRestart.
         /// RequestRestart is fire-and-forget and shows an Expansion confirmation dialog.
         /// We automatically click Yes on the dialog, then poll for completion.
+        ///
+        /// Note: CoroutineStoppedException is NOT caught here - it propagates up to
+        /// ExecuteOrderAsync for retry handling.
         /// </summary>
         private async Task ExecuteResumeOrderAsync(string json)
         {
@@ -400,12 +418,15 @@ namespace TheWrangler
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex.GetType().Name != "CoroutineStoppedException")
             {
+                // Catch all exceptions EXCEPT CoroutineStoppedException
+                // CoroutineStoppedException should propagate up for retry handling
                 Log($"Error in resume: {ex.Message}");
                 Logging.WriteException(ex);
                 _controller.OnOrderExecutionError(ex.Message);
             }
+            // Note: CoroutineStoppedException will propagate up to ExecuteOrderAsync
         }
 
         /// <summary>
