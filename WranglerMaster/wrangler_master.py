@@ -1226,11 +1226,11 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._browse_background
         ).pack(side="left")
 
-        # Opacity slider
+        # Transparency slider (how much background shows through)
         opacity_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         opacity_frame.pack(fill="x", pady=10)
 
-        ctk.CTkLabel(opacity_frame, text="Opacity:", width=120).pack(side="left")
+        ctk.CTkLabel(opacity_frame, text="Transparency:", width=120).pack(side="left")
 
         self.opacity_var = ctk.DoubleVar(value=self.settings.background_opacity)
         self.opacity_slider = ctk.CTkSlider(
@@ -1400,18 +1400,54 @@ class WranglerMasterApp(ctk.CTk):
             weight=weight
         )
 
+    def get_fg_color(self, base_dark: str = "#2b2b2b", base_light: str = "#dbdbdb") -> tuple:
+        """Returns foreground color with transparency applied.
+
+        background_opacity controls how transparent the foreground is:
+        - 1.0 = fully transparent foreground (background fully visible)
+        - 0.0 = fully opaque foreground (background not visible)
+        """
+        transparency = self.app_settings.background_opacity
+
+        if transparency >= 0.99:
+            return "transparent"
+
+        if transparency <= 0.01:
+            return (base_light, base_dark)
+
+        # Calculate semi-transparent color by reducing color intensity
+        # Higher transparency = darker/more transparent color
+        alpha = 1.0 - transparency  # Invert: high transparency = low alpha
+
+        def blend_color(hex_color: str, a: float) -> str:
+            r = int(hex_color[1:3], 16)
+            g = int(hex_color[3:5], 16)
+            b = int(hex_color[5:7], 16)
+            # Reduce intensity based on alpha
+            r = int(r * a)
+            g = int(g * a)
+            b = int(b * a)
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        dark_blended = blend_color(base_dark, alpha)
+        light_blended = blend_color(base_light, alpha)
+        return (light_blended, dark_blended)
+
     def _create_ui(self):
         """Creates the main UI."""
         # Background image (if set)
         self._setup_background()
 
-        # Main container
+        # Main container - always transparent to show background
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True)
 
         self._create_toolbar()
         self._create_main_area()
         self._create_status_bar()
+
+        # Apply initial foreground opacity
+        self._apply_foreground_opacity()
 
     def _setup_background(self):
         """Sets up background image if configured."""
@@ -1444,33 +1480,13 @@ class WranglerMasterApp(ctk.CTk):
                 print(f"Failed to load background image: {e}")
 
     def _load_background_with_opacity(self) -> Optional[Image.Image]:
-        """Loads background image and applies opacity setting. Returns original size."""
+        """Loads background image at full opacity."""
         if not self.app_settings.background_image:
             return None
 
         try:
-            img = Image.open(self.app_settings.background_image).convert("RGBA")
-
-            # Apply opacity by blending with a dark or light background
-            opacity = self.app_settings.background_opacity
-
-            # Determine base color based on appearance mode
-            mode = self.app_settings.appearance_mode
-            if mode == "system":
-                # Default to dark for system
-                base_color = (26, 26, 26, 255)  # Dark background
-            elif mode == "light":
-                base_color = (232, 232, 232, 255)  # Light background
-            else:
-                base_color = (26, 26, 26, 255)  # Dark background
-
-            # Create base image
-            base = Image.new("RGBA", img.size, base_color)
-
-            # Blend: base * (1 - opacity) + img * opacity
-            blended = Image.blend(base, img, opacity)
-
-            return blended.convert("RGB")
+            img = Image.open(self.app_settings.background_image).convert("RGB")
+            return img
         except Exception as e:
             print(f"Failed to process background image: {e}")
             return None
@@ -1515,11 +1531,11 @@ class WranglerMasterApp(ctk.CTk):
 
     def _create_toolbar(self):
         """Creates the toolbar with master controls."""
-        toolbar = ctk.CTkFrame(self.main_container, corner_radius=0)
-        toolbar.pack(fill="x", padx=15, pady=(15, 0))
+        self.toolbar = ctk.CTkFrame(self.main_container, corner_radius=0)
+        self.toolbar.pack(fill="x", padx=15, pady=(15, 0))
 
         # Left side - Title
-        title_frame = ctk.CTkFrame(toolbar, fg_color="transparent")
+        title_frame = ctk.CTkFrame(self.toolbar, fg_color="transparent")
         title_frame.pack(side="left", padx=15, pady=15)
 
         title = ctk.CTkLabel(
@@ -1530,7 +1546,7 @@ class WranglerMasterApp(ctk.CTk):
         title.pack(side="left")
 
         # Right side - Buttons
-        btn_frame = ctk.CTkFrame(toolbar, fg_color="transparent")
+        btn_frame = ctk.CTkFrame(self.toolbar, fg_color="transparent")
         btn_frame.pack(side="right", padx=15, pady=10)
 
         self.settings_btn = ctk.CTkButton(
@@ -1615,12 +1631,12 @@ class WranglerMasterApp(ctk.CTk):
 
     def _create_status_bar(self):
         """Creates the status bar at the bottom."""
-        status_frame = ctk.CTkFrame(self.main_container, corner_radius=0, height=35)
-        status_frame.pack(fill="x", side="bottom")
-        status_frame.pack_propagate(False)
+        self.status_frame = ctk.CTkFrame(self.main_container, corner_radius=0, height=35)
+        self.status_frame.pack(fill="x", side="bottom")
+        self.status_frame.pack_propagate(False)
 
         self.status_label = ctk.CTkLabel(
-            status_frame,
+            self.status_frame,
             text="Ready",
             font=self.get_font(size=11),
             text_color="gray"
@@ -1629,12 +1645,24 @@ class WranglerMasterApp(ctk.CTk):
 
         # JSON path indicator
         self.json_label = ctk.CTkLabel(
-            status_frame,
+            self.status_frame,
             text="",
             font=self.get_font(size=11),
             text_color="gray"
         )
         self.json_label.pack(side="right", padx=15, pady=8)
+
+    def _apply_foreground_opacity(self):
+        """Applies the foreground opacity setting to UI elements."""
+        fg_color = self.get_fg_color()
+
+        # Update main UI frames
+        if hasattr(self, 'toolbar'):
+            self.toolbar.configure(fg_color=fg_color)
+        if hasattr(self, 'panels_scroll'):
+            self.panels_scroll.configure(fg_color=fg_color)
+        if hasattr(self, 'status_frame'):
+            self.status_frame.configure(fg_color=fg_color)
 
     def _refresh_panels(self):
         """Recreates all instance panels."""
@@ -1743,6 +1771,9 @@ class WranglerMasterApp(ctk.CTk):
         # Ensure background stays behind main container
         if self.bg_label and hasattr(self, 'main_container'):
             self.bg_label.lower()
+
+        # Apply foreground opacity
+        self._apply_foreground_opacity()
 
         self._set_status("Settings saved. Theme/font changes require restart.")
 
