@@ -610,7 +610,8 @@ class AdvancedRunDialog(tk.Toplevel):
         super().__init__(parent)
         self.title(f"Advanced Run - {instance_name}")
         self.geometry("450x450")
-        self.resizable(False, False)
+        self.minsize(450, 450)
+        self.resizable(True, True)
         self.configure(bg="#2d2d30")
 
         self.result: Optional[AdvancedRunConfig] = None
@@ -637,8 +638,34 @@ class AdvancedRunDialog(tk.Toplevel):
 
     def _create_widgets(self):
         """Creates dialog widgets."""
+        # Button frame at the bottom (pack first so it stays at bottom when resizing)
+        btn_frame = tk.Frame(self, bg="#2d2d30")
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
+
+        tk.Button(
+            btn_frame, text="Cancel", font=("Segoe UI", 10),
+            bg="#666666", fg="white", relief=tk.FLAT, width=10,
+            command=self.destroy
+        ).pack(side=tk.RIGHT, padx=5)
+
+        tk.Button(
+            btn_frame, text="Start", font=("Segoe UI", 10, "bold"),
+            bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
+            command=self._on_start
+        ).pack(side=tk.RIGHT, padx=5)
+
+        tk.Button(
+            btn_frame, text="Save", font=("Segoe UI", 10),
+            bg="#3498db", fg="white", relief=tk.FLAT, width=10,
+            command=self._on_save
+        ).pack(side=tk.RIGHT, padx=5)
+
+        # Content frame that expands
+        content_frame = tk.Frame(self, bg="#2d2d30")
+        content_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
         # Mode selection
-        mode_frame = tk.Frame(self, bg="#2d2d30")
+        mode_frame = tk.Frame(content_frame, bg="#2d2d30")
         mode_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
 
         tk.Label(
@@ -668,7 +695,7 @@ class AdvancedRunDialog(tk.Toplevel):
         ).pack(side=tk.LEFT)
 
         # Resume option (applies to all modes)
-        resume_frame = tk.Frame(self, bg="#2d2d30")
+        resume_frame = tk.Frame(content_frame, bg="#2d2d30")
         resume_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
 
         # Always allow the checkbox to be set (as a preference for future runs)
@@ -683,7 +710,7 @@ class AdvancedRunDialog(tk.Toplevel):
 
         # None mode description
         self.none_frame = tk.LabelFrame(
-            self, text="None Mode (Normal Run)", font=("Segoe UI", 10),
+            content_frame, text="None Mode (Normal Run)", font=("Segoe UI", 10),
             fg="white", bg="#2d2d30", padx=15, pady=10
         )
         self.none_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -696,7 +723,7 @@ class AdvancedRunDialog(tk.Toplevel):
 
         # Timer mode frame
         self.timer_frame = tk.LabelFrame(
-            self, text="Timer Mode", font=("Segoe UI", 10),
+            content_frame, text="Timer Mode", font=("Segoe UI", 10),
             fg="white", bg="#2d2d30", padx=15, pady=10
         )
         self.timer_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -734,7 +761,7 @@ class AdvancedRunDialog(tk.Toplevel):
 
         # Schedule mode frame
         self.schedule_frame = tk.LabelFrame(
-            self, text="Schedule Mode", font=("Segoe UI", 10),
+            content_frame, text="Schedule Mode", font=("Segoe UI", 10),
             fg="white", bg="#2d2d30", padx=15, pady=10
         )
         self.schedule_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -795,28 +822,6 @@ class AdvancedRunDialog(tk.Toplevel):
             text="Runs daily: starts at start time, stops at end time.",
             font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
-        # Buttons
-        btn_frame = tk.Frame(self, bg="#2d2d30")
-        btn_frame.pack(fill=tk.X, padx=20, pady=20)
-
-        tk.Button(
-            btn_frame, text="Cancel", font=("Segoe UI", 10),
-            bg="#666666", fg="white", relief=tk.FLAT, width=10,
-            command=self.destroy
-        ).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(
-            btn_frame, text="Start", font=("Segoe UI", 10, "bold"),
-            bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
-            command=self._on_start
-        ).pack(side=tk.RIGHT, padx=5)
-
-        tk.Button(
-            btn_frame, text="Save", font=("Segoe UI", 10),
-            bg="#3498db", fg="white", relief=tk.FLAT, width=10,
-            command=self._on_save
-        ).pack(side=tk.RIGHT, padx=5)
 
         # Initialize visibility
         self._on_mode_change()
@@ -1763,7 +1768,8 @@ class AddInstanceDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Add Wrangler Instance")
         self.geometry("400x200")
-        self.resizable(False, False)
+        self.minsize(400, 200)
+        self.resizable(True, True)
         self.configure(bg="#2d2d30")
 
         self.result = None
@@ -1782,48 +1788,9 @@ class AddInstanceDialog(tk.Toplevel):
 
     def _create_widgets(self):
         """Creates dialog widgets."""
-        # Name field
-        name_frame = tk.Frame(self, bg="#2d2d30")
-        name_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
-
-        tk.Label(
-            name_frame, text="Name:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.name_entry = tk.Entry(name_frame, font=("Segoe UI", 10), width=30)
-        self.name_entry.pack(side=tk.LEFT, padx=10)
-        self.name_entry.insert(0, "Account 1")
-
-        # Host field
-        host_frame = tk.Frame(self, bg="#2d2d30")
-        host_frame.pack(fill=tk.X, padx=20, pady=10)
-
-        tk.Label(
-            host_frame, text="Host:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.host_entry = tk.Entry(host_frame, font=("Segoe UI", 10), width=30)
-        self.host_entry.pack(side=tk.LEFT, padx=10)
-        self.host_entry.insert(0, "localhost")
-
-        # Port field
-        port_frame = tk.Frame(self, bg="#2d2d30")
-        port_frame.pack(fill=tk.X, padx=20, pady=10)
-
-        tk.Label(
-            port_frame, text="Port:", font=("Segoe UI", 10),
-            fg="white", bg="#2d2d30", width=8, anchor="e"
-        ).pack(side=tk.LEFT)
-
-        self.port_entry = tk.Entry(port_frame, font=("Segoe UI", 10), width=30)
-        self.port_entry.pack(side=tk.LEFT, padx=10)
-        self.port_entry.insert(0, "7800")
-
-        # Buttons
+        # Button frame at the bottom (pack first so it stays at bottom when resizing)
         btn_frame = tk.Frame(self, bg="#2d2d30")
-        btn_frame.pack(fill=tk.X, padx=20, pady=20)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=20)
 
         tk.Button(
             btn_frame, text="Cancel", font=("Segoe UI", 10),
@@ -1836,6 +1803,49 @@ class AddInstanceDialog(tk.Toplevel):
             bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
             command=self._on_add
         ).pack(side=tk.RIGHT, padx=5)
+
+        # Content frame that expands
+        content_frame = tk.Frame(self, bg="#2d2d30")
+        content_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Name field
+        name_frame = tk.Frame(content_frame, bg="#2d2d30")
+        name_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
+
+        tk.Label(
+            name_frame, text="Name:", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", width=8, anchor="e"
+        ).pack(side=tk.LEFT)
+
+        self.name_entry = tk.Entry(name_frame, font=("Segoe UI", 10))
+        self.name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+        self.name_entry.insert(0, "Account 1")
+
+        # Host field
+        host_frame = tk.Frame(content_frame, bg="#2d2d30")
+        host_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        tk.Label(
+            host_frame, text="Host:", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", width=8, anchor="e"
+        ).pack(side=tk.LEFT)
+
+        self.host_entry = tk.Entry(host_frame, font=("Segoe UI", 10))
+        self.host_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+        self.host_entry.insert(0, "localhost")
+
+        # Port field
+        port_frame = tk.Frame(content_frame, bg="#2d2d30")
+        port_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        tk.Label(
+            port_frame, text="Port:", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", width=8, anchor="e"
+        ).pack(side=tk.LEFT)
+
+        self.port_entry = tk.Entry(port_frame, font=("Segoe UI", 10))
+        self.port_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+        self.port_entry.insert(0, "7800")
 
     def _on_add(self):
         """Validates and returns result."""
