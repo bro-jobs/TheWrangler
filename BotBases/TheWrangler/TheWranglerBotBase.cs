@@ -379,12 +379,10 @@ namespace TheWrangler
                 // Small delay to let orders start processing
                 await Coroutine.Sleep(1000);
 
-                // Poll for completion - check if there are still active orders
-                // We'll poll every 2 seconds for up to 8 hours (max reasonable runtime)
+                // Poll for completion indefinitely - orders can take days or weeks
                 const int pollIntervalMs = 2000;
-                const int maxPolls = 14400; // 8 hours
 
-                for (int i = 0; i < maxPolls; i++)
+                while (true)
                 {
                     await Coroutine.Sleep(pollIntervalMs);
 
@@ -401,10 +399,6 @@ namespace TheWrangler
                         return;
                     }
                 }
-
-                // Timeout after max polls
-                Log("Resume timed out after maximum duration.");
-                _controller.OnOrderExecutionComplete(false);
             }
             catch (Exception ex)
             {
