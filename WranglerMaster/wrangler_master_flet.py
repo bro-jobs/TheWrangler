@@ -740,7 +740,8 @@ class WranglerMasterApp:
                 self._rebuild_panels()
                 self._save_config()
                 self._set_status(f"Removed: {instance.name}")
-            self.page.close(dlg)
+            dlg.open = False
+            self.page.update()
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -751,7 +752,9 @@ class WranglerMasterApp:
                 ft.TextButton("No", on_click=do_remove),
             ],
         )
-        self.page.open(dlg)
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
 
     # =========================================================================
     # Bulk Actions
@@ -883,6 +886,10 @@ class WranglerMasterApp:
             border_radius=0,
         )
 
+        def close_dlg(e):
+            dlg.open = False
+            self.page.update()
+
         def add_instance(e):
             name = name_field.value.strip()
             host = host_field.value.strip()
@@ -896,7 +903,8 @@ class WranglerMasterApp:
             self._rebuild_panels()
             self._save_config()
             self._set_status(f"Added: {name}")
-            self.page.close(dlg)
+            dlg.open = False
+            self.page.update()
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -906,7 +914,7 @@ class WranglerMasterApp:
                 controls=[name_field, host_field, port_field],
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda _: self.page.close(dlg)),
+                ft.TextButton("Cancel", on_click=close_dlg),
                 ft.ElevatedButton(
                     "Add",
                     bgcolor=Colors.BLURPLE,
@@ -916,7 +924,9 @@ class WranglerMasterApp:
                 ),
             ],
         )
-        self.page.open(dlg)
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
 
     def _show_settings(self, e):
         bg_field = ft.TextField(
@@ -955,12 +965,17 @@ class WranglerMasterApp:
                 dialog_title="Select Background Image",
             )
 
+        def close_dlg(e):
+            dlg.open = False
+            self.page.update()
+
         def save_settings(e):
             self.settings.background_image = bg_field.value
             self.settings.background_opacity = opacity_slider.value
             self._save_settings()
             self._rebuild_ui()
-            self.page.close(dlg)
+            dlg.open = False
+            self.page.update()
             self._set_status("Settings saved")
 
         dlg = ft.AlertDialog(
@@ -986,7 +1001,7 @@ class WranglerMasterApp:
                 ],
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda _: self.page.close(dlg)),
+                ft.TextButton("Cancel", on_click=close_dlg),
                 ft.ElevatedButton(
                     "Save",
                     bgcolor=Colors.BLURPLE,
@@ -996,7 +1011,9 @@ class WranglerMasterApp:
                 ),
             ],
         )
-        self.page.open(dlg)
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
 
     def _pick_json_file(self, callback):
         def on_result(e: ft.FilePickerResultEvent):
