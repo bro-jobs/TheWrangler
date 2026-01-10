@@ -495,7 +495,9 @@ namespace TheWrangler
             try
             {
                 Log($"TravelTo: Zone {zoneId}, SubZone {subZoneId}, Position {position}");
-                return await _travelTo(zoneId, subZoneId, position, stopCondition, skipLanding);
+                // Use a non-null stop condition - Lisbeth may not handle null
+                var condition = stopCondition ?? (() => false);
+                return await _travelTo(zoneId, subZoneId, position, condition, skipLanding);
             }
             catch (Exception ex)
             {
@@ -532,7 +534,9 @@ namespace TheWrangler
             try
             {
                 Log($"TravelToWithArea: {area}, Position {position}");
-                return await _travelToWithArea(area, position, stopCondition, skipLanding);
+                // Use a non-null stop condition - Lisbeth may not handle null
+                var condition = stopCondition ?? (() => false);
+                return await _travelToWithArea(area, position, condition, skipLanding);
             }
             catch (Exception ex)
             {
