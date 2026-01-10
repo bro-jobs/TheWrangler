@@ -272,9 +272,9 @@ namespace TheWrangler
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
 
-            // Retry once for CoroutineStoppedException - this can happen when
-            // the coroutine system is unstable (e.g., during startup) or when
-            // Lisbeth's internal state is corrupted from a previous forced stop
+            // Retry once for CoroutineStoppedException - but ONLY if bot is still running.
+            // If the bot was stopped externally, we must let the exception propagate
+            // so the coroutine system can properly dispose of the coroutine.
             const int maxRetries = 1;
             int attempt = 0;
 
@@ -306,6 +306,15 @@ namespace TheWrangler
                 }
                 catch (Exception ex) when (ex.GetType().Name == "CoroutineStoppedException" && attempt < maxRetries)
                 {
+                    // CRITICAL: Only retry if the bot is still running!
+                    // If the bot was stopped, we must let the exception propagate
+                    // so the coroutine system can properly clean up.
+                    if (!TreeRoot.IsRunning)
+                    {
+                        Log("Bot was stopped - letting CoroutineStoppedException propagate for proper cleanup.");
+                        throw;
+                    }
+
                     // This can happen when the coroutine system is unstable or
                     // Lisbeth's internal state is corrupted. Retry once.
                     Log($"CoroutineStoppedException on attempt {attempt + 1}, will retry...");
