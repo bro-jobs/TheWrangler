@@ -131,6 +131,16 @@ Log($"Stopped. Final location: {Core.Me.Location}");
 Use `LlamaLibrary.Helpers.Navigation.GetTo(uint zoneId, Vector3 xyz)` for navigation.
 This handles everything: NavigationProvider init, teleportation, NavGraph, Flightor fallback.
 
+**Lisbeth Travel API** - For complex cross-zone navigation, use Lisbeth's travel methods:
+- `TravelTo(zone, subzone, position, condition, skipLanding)` - Navigate by zone ID
+- `TravelToWithArea(area, position, condition, skipLanding)` - Navigate by area name
+
+**CRITICAL:** The `condition` parameter uses inverted logic:
+- `() => true` = keep navigating (continue)
+- `() => false` = stop navigation (abort)
+
+This is a "continue condition", NOT a "stop condition". Always use `() => true` for normal navigation.
+
 ### Dialog Windows
 - `Talk.DialogOpen` / `Talk.Next()` - Dialog text
 - `SelectYesno.IsOpen` / `SelectYesno.ClickYes()` - Yes/No prompts

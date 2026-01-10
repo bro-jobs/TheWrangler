@@ -58,6 +58,7 @@ class WranglerInstance:
     host: str
     port: int
     enabled: bool = True
+    go_home_after_session: bool = False  # Go to Lisbeth home after timer/schedule ends
 
     @property
     def base_url(self) -> str:
@@ -212,6 +213,27 @@ class WranglerClient:
         except Exception as e:
             return False, str(e)
 
+    @staticmethod
+    def go_home(instance: WranglerInstance) -> tuple[bool, str]:
+        """Sends a go home command to navigate to Lisbeth's configured home location."""
+        try:
+            response = requests.post(
+                f"{instance.base_url}/gohome",
+                timeout=REQUEST_TIMEOUT
+            )
+
+            data = response.json()
+            success = data.get("success", False)
+            message = data.get("message", data.get("error", "Unknown response"))
+            return success, message
+
+        except requests.exceptions.ConnectionError:
+            return False, "Connection refused"
+        except requests.exceptions.Timeout:
+            return False, "Request timeout"
+        except Exception as e:
+            return False, str(e)
+
 
 # =============================================================================
 # Instance Panel Widget
@@ -231,7 +253,8 @@ class InstancePanel(ttk.Frame):
 
     def __init__(self, parent, instance: WranglerInstance,
                  on_run: Callable, on_stop: Callable, on_resume: Callable,
-                 on_advanced_run: Callable, on_remove: Callable):
+                 on_advanced_run: Callable, on_remove: Callable,
+                 on_settings_changed: Callable = None):
         super().__init__(parent, padding=10)
 
         self.instance = instance
@@ -241,6 +264,7 @@ class InstancePanel(ttk.Frame):
         self.on_resume = on_resume
         self.on_advanced_run = on_advanced_run
         self.on_remove = on_remove
+        self.on_settings_changed = on_settings_changed
 
         self._create_widgets()
         self._layout_widgets()
@@ -384,6 +408,30 @@ class InstancePanel(ttk.Frame):
             command=self._on_remove_click
         )
 
+        # Menu button (three dots)
+        self.menu_btn = tk.Button(
+            self.button_frame,
+            text="\u22EE",  # Vertical ellipsis
+            font=("Segoe UI", 10),
+            bg="#555555",
+            fg="white",
+            activebackground="#666666",
+            activeforeground="white",
+            relief=tk.FLAT,
+            width=2,
+            command=self._show_menu
+        )
+
+        # Create popup menu
+        self.popup_menu = tk.Menu(self, tearoff=0, bg="#2d2d30", fg="white",
+                                   activebackground="#3d3d40", activeforeground="white")
+        self.go_home_var = tk.BooleanVar(value=self.instance.go_home_after_session)
+        self.popup_menu.add_checkbutton(
+            label="Go Home after session",
+            variable=self.go_home_var,
+            command=self._on_go_home_toggle
+        )
+
     def _layout_widgets(self):
         """Arranges widgets in the panel."""
         self.container.pack(fill=tk.BOTH, expand=True)
@@ -413,6 +461,7 @@ class InstancePanel(ttk.Frame):
         self.resume_btn.pack(side=tk.LEFT, padx=2)
         self.stop_btn.pack(side=tk.LEFT, padx=2)
         self.advanced_btn.pack(side=tk.LEFT, padx=2)
+        self.menu_btn.pack(side=tk.RIGHT, padx=2)
         self.remove_btn.pack(side=tk.RIGHT, padx=2)
 
     def update_status(self, status: InstanceStatus):
@@ -500,6 +549,19 @@ class InstancePanel(ttk.Frame):
     def _on_remove_click(self):
         """Handles Remove button click."""
         self.on_remove(self.instance)
+
+    def _show_menu(self):
+        """Shows the popup menu."""
+        # Position menu near the button
+        x = self.menu_btn.winfo_rootx()
+        y = self.menu_btn.winfo_rooty() + self.menu_btn.winfo_height()
+        self.popup_menu.post(x, y)
+
+    def _on_go_home_toggle(self):
+        """Handles Go Home checkbox toggle."""
+        self.instance.go_home_after_session = self.go_home_var.get()
+        if self.on_settings_changed:
+            self.on_settings_changed()
 
 
 # =============================================================================
@@ -1005,7 +1067,8 @@ class WranglerMasterApp:
                 on_stop=self._on_panel_stop,
                 on_resume=self._on_panel_resume,
                 on_advanced_run=self._on_panel_advanced_run,
-                on_remove=self._on_panel_remove
+                on_remove=self._on_panel_remove,
+                on_settings_changed=self._save_config
             )
 
             row = i // cols
@@ -1250,6 +1313,14 @@ class WranglerMasterApp:
                     status = WranglerClient.get_status(inst)
                     self.root.after(0, lambda: self._update_panel(inst, status))
 
+                    # Go home if enabled
+                    if inst.go_home_after_session:
+                        time.sleep(3)  # Wait for stop to complete
+                        success, msg = WranglerClient.go_home(inst)
+                        self.root.after(0, lambda: self._set_status(
+                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed: {msg}"
+                        ))
+
                 threading.Thread(target=do_stop, daemon=True).start()
 
         # Clean up expired timers
@@ -1326,6 +1397,14 @@ class WranglerMasterApp:
                     time.sleep(2)
                     st = WranglerClient.get_status(inst)
                     self.root.after(0, lambda: self._update_panel(inst, st))
+
+                    # Go home if enabled
+                    if inst.go_home_after_session:
+                        time.sleep(3)  # Wait for stop to complete
+                        success, msg = WranglerClient.go_home(inst)
+                        self.root.after(0, lambda: self._set_status(
+                            f"{inst.name}: Going home..." if success else f"{inst.name}: Go home failed: {msg}"
+                        ))
 
                 threading.Thread(target=do_stop, daemon=True).start()
 

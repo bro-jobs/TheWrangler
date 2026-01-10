@@ -346,6 +346,19 @@ namespace TheWrangler
                         }
                         break;
 
+                    case "/gohome":
+                        if (request.Method != "POST")
+                        {
+                            statusCode = 405;
+                            statusText = "Method Not Allowed";
+                            body = JsonConvert.SerializeObject(new { error = "Method not allowed" });
+                        }
+                        else
+                        {
+                            body = HandleGoHome();
+                        }
+                        break;
+
                     default:
                         statusCode = 404;
                         statusText = "Not Found";
@@ -552,6 +565,31 @@ namespace TheWrangler
             {
                 return JsonConvert.SerializeObject(new { success = false, error = "Failed to resume orders" });
             }
+        }
+
+        /// <summary>
+        /// Handles POST /gohome - triggers navigation to Lisbeth's configured home location.
+        /// </summary>
+        private string HandleGoHome()
+        {
+            if (!TheWranglerBotBase.IsBotRunning)
+            {
+                return JsonConvert.SerializeObject(new { success = false, error = "Bot is not running" });
+            }
+
+            if (_controller.IsExecuting)
+            {
+                return JsonConvert.SerializeObject(new { success = false, error = "Cannot go home while executing orders" });
+            }
+
+            // Queue the go home command to run on the bot thread
+            _controller.QueueDebugCommand("/test5", "", result =>
+            {
+                // Result is logged but not returned since this is async
+                ff14bot.Helpers.Logging.Write($"[TheWrangler] Go Home result: {result}");
+            });
+
+            return JsonConvert.SerializeObject(new { success = true, message = "Go home command queued" });
         }
 
         #endregion
