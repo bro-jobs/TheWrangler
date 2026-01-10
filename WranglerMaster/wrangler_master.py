@@ -160,12 +160,34 @@ class InstanceStatus:
     runtime_seconds: int = 0
 
 
+# Available fonts for the font selector
+AVAILABLE_FONTS = [
+    "Segoe UI",
+    "Arial",
+    "Helvetica",
+    "Verdana",
+    "Tahoma",
+    "Trebuchet MS",
+    "Calibri",
+    "Consolas",
+    "Courier New",
+    "Georgia",
+    "Times New Roman",
+    "Roboto",
+    "Open Sans",
+    "Lato",
+]
+
+
 @dataclass
 class AppSettings:
     """Application-wide settings."""
     appearance_mode: str = "dark"  # "light", "dark", "system"
     color_theme: str = "wrangler"  # "blue", "dark-blue", "green", "wrangler"
     background_image: str = ""  # Path to custom background image
+    background_opacity: float = 0.3  # 0.0 (invisible) to 1.0 (fully visible)
+    font_family: str = "Segoe UI"  # Font family for the UI
+    font_size: int = 13  # Base font size
 
 
 # =============================================================================
@@ -1062,14 +1084,18 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, settings: AppSettings, on_apply: Callable):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("450x400")
-        self.minsize(450, 400)
+        self.geometry("500x620")
+        self.minsize(500, 620)
         self.resizable(True, True)
 
         self.settings = settings
         self.on_apply = on_apply
+        self._auto_save_enabled = False  # Prevent saves during init
 
         self._create_widgets()
+
+        # Enable auto-save after widgets are created
+        self._auto_save_enabled = True
 
         # Make dialog modal
         self.transient(parent)
@@ -1104,6 +1130,7 @@ class SettingsDialog(ctk.CTkToplevel):
             mode_frame,
             values=["light", "dark", "system"],
             variable=self.appearance_var,
+            command=self._on_setting_changed,
             width=200
         )
         self.appearance_menu.pack(side="left")
@@ -1118,16 +1145,64 @@ class SettingsDialog(ctk.CTkToplevel):
             theme_frame,
             values=AVAILABLE_THEMES,
             variable=self.theme_var,
+            command=self._on_setting_changed,
             width=200
         )
         self.theme_menu.pack(side="left")
+
+        # Font section
+        ctk.CTkLabel(
+            main_frame,
+            text="Font",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", pady=(20, 15))
+
+        # Font family
+        font_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        font_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(font_frame, text="Family:", width=120).pack(side="left")
+        self.font_var = ctk.StringVar(value=self.settings.font_family)
+        self.font_menu = ctk.CTkOptionMenu(
+            font_frame,
+            values=AVAILABLE_FONTS,
+            variable=self.font_var,
+            command=self._on_setting_changed,
+            width=200
+        )
+        self.font_menu.pack(side="left")
+
+        # Font size
+        size_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        size_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(size_frame, text="Size:", width=120).pack(side="left")
+
+        self.font_size_var = ctk.IntVar(value=self.settings.font_size)
+        self.font_size_slider = ctk.CTkSlider(
+            size_frame,
+            from_=10,
+            to=18,
+            number_of_steps=8,
+            variable=self.font_size_var,
+            command=self._on_font_size_changed,
+            width=150
+        )
+        self.font_size_slider.pack(side="left", padx=(0, 10))
+
+        self.font_size_label = ctk.CTkLabel(
+            size_frame,
+            text=f"{self.settings.font_size}pt",
+            width=40
+        )
+        self.font_size_label.pack(side="left")
 
         # Background section
         ctk.CTkLabel(
             main_frame,
             text="Background",
             font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(anchor="w", pady=(30, 15))
+        ).pack(anchor="w", pady=(20, 15))
 
         # Background image
         bg_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -1151,6 +1226,30 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._browse_background
         ).pack(side="left")
 
+        # Opacity slider
+        opacity_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        opacity_frame.pack(fill="x", pady=10)
+
+        ctk.CTkLabel(opacity_frame, text="Opacity:", width=120).pack(side="left")
+
+        self.opacity_var = ctk.DoubleVar(value=self.settings.background_opacity)
+        self.opacity_slider = ctk.CTkSlider(
+            opacity_frame,
+            from_=0.0,
+            to=1.0,
+            variable=self.opacity_var,
+            command=self._on_opacity_changed,
+            width=180
+        )
+        self.opacity_slider.pack(side="left", padx=(0, 10))
+
+        self.opacity_label = ctk.CTkLabel(
+            opacity_frame,
+            text=f"{int(self.settings.background_opacity * 100)}%",
+            width=40
+        )
+        self.opacity_label.pack(side="left")
+
         # Clear background button
         clear_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         clear_frame.pack(fill="x", pady=5)
@@ -1167,9 +1266,10 @@ class SettingsDialog(ctk.CTkToplevel):
         # Note about theme changes
         note_label = ctk.CTkLabel(
             main_frame,
-            text="Note: Theme changes require restart to take full effect.",
+            text="Note: Theme changes require restart to take full effect.\nOther settings are applied immediately.",
             font=ctk.CTkFont(size=11),
-            text_color="gray"
+            text_color="gray",
+            justify="left"
         )
         note_label.pack(anchor="w", pady=(30, 0))
 
@@ -1179,21 +1279,31 @@ class SettingsDialog(ctk.CTkToplevel):
 
         ctk.CTkButton(
             btn_frame,
-            text="Cancel",
+            text="Close",
             fg_color="gray",
             hover_color="gray30",
             width=100,
             command=self.destroy
         ).pack(side="right", padx=5)
 
-        ctk.CTkButton(
-            btn_frame,
-            text="Apply",
-            fg_color="#2ecc71",
-            hover_color="#27ae60",
-            width=100,
-            command=self._on_apply
-        ).pack(side="right", padx=5)
+    def _on_setting_changed(self, value=None):
+        """Called when any setting changes - auto-saves."""
+        if not self._auto_save_enabled:
+            return
+        self._apply_settings()
+
+    def _on_opacity_changed(self, value):
+        """Called when opacity slider changes."""
+        self.opacity_label.configure(text=f"{int(value * 100)}%")
+        if self._auto_save_enabled:
+            self._apply_settings()
+
+    def _on_font_size_changed(self, value):
+        """Called when font size slider changes."""
+        size = int(value)
+        self.font_size_label.configure(text=f"{size}pt")
+        if self._auto_save_enabled:
+            self._apply_settings()
 
     def _browse_background(self):
         """Opens file dialog to select background image."""
@@ -1206,18 +1316,22 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         if path:
             self.bg_path_var.set(path)
+            self._apply_settings()
 
     def _clear_background(self):
         """Clears the background image selection."""
         self.bg_path_var.set("")
+        self._apply_settings()
 
-    def _on_apply(self):
-        """Applies settings and closes dialog."""
+    def _apply_settings(self):
+        """Applies current settings immediately."""
         self.settings.appearance_mode = self.appearance_var.get()
         self.settings.color_theme = self.theme_var.get()
         self.settings.background_image = self.bg_path_var.get()
+        self.settings.background_opacity = self.opacity_var.get()
+        self.settings.font_family = self.font_var.get()
+        self.settings.font_size = int(self.font_size_var.get())
         self.on_apply(self.settings)
-        self.destroy()
 
 
 # =============================================================================
@@ -1276,6 +1390,14 @@ class WranglerMasterApp(ctk.CTk):
         elif self.app_settings.color_theme in ["blue", "dark-blue", "green"]:
             ctk.set_default_color_theme(self.app_settings.color_theme)
 
+    def get_font(self, size: int = None, weight: str = "normal") -> ctk.CTkFont:
+        """Returns a CTkFont with the current settings."""
+        return ctk.CTkFont(
+            family=self.app_settings.font_family,
+            size=size or self.app_settings.font_size,
+            weight=weight
+        )
+
     def _create_ui(self):
         """Creates the main UI."""
         # Background image (if set)
@@ -1293,32 +1415,72 @@ class WranglerMasterApp(ctk.CTk):
         """Sets up background image if configured."""
         if self.app_settings.background_image and os.path.exists(self.app_settings.background_image):
             try:
-                img = Image.open(self.app_settings.background_image)
-                self.bg_image = ctk.CTkImage(
-                    light_image=img,
-                    dark_image=img,
-                    size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                img = self._load_background_with_opacity(
+                    self.winfo_screenwidth(),
+                    self.winfo_screenheight()
                 )
-                self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
-                self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+                if img:
+                    self.bg_image = ctk.CTkImage(
+                        light_image=img,
+                        dark_image=img,
+                        size=(self.winfo_screenwidth(), self.winfo_screenheight())
+                    )
+                    self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
+                    self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-                # Bind resize event to update background
-                self.bind("<Configure>", self._on_resize)
+                    # Bind resize event to update background
+                    self.bind("<Configure>", self._on_resize)
             except Exception as e:
                 print(f"Failed to load background image: {e}")
+
+    def _load_background_with_opacity(self, width: int, height: int) -> Optional[Image.Image]:
+        """Loads background image and applies opacity setting."""
+        if not self.app_settings.background_image:
+            return None
+
+        try:
+            img = Image.open(self.app_settings.background_image).convert("RGBA")
+
+            # Apply opacity by blending with a dark or light background
+            opacity = self.app_settings.background_opacity
+
+            # Determine base color based on appearance mode
+            mode = self.app_settings.appearance_mode
+            if mode == "system":
+                # Default to dark for system
+                base_color = (26, 26, 26, 255)  # Dark background
+            elif mode == "light":
+                base_color = (232, 232, 232, 255)  # Light background
+            else:
+                base_color = (26, 26, 26, 255)  # Dark background
+
+            # Create base image
+            base = Image.new("RGBA", img.size, base_color)
+
+            # Blend: base * (1 - opacity) + img * opacity
+            blended = Image.blend(base, img, opacity)
+
+            return blended.convert("RGB")
+        except Exception as e:
+            print(f"Failed to process background image: {e}")
+            return None
 
     def _on_resize(self, event=None):
         """Updates background image size on window resize."""
         if self.bg_image and self.app_settings.background_image:
             try:
-                img = Image.open(self.app_settings.background_image)
-                self.bg_image = ctk.CTkImage(
-                    light_image=img,
-                    dark_image=img,
-                    size=(self.winfo_width(), self.winfo_height())
+                img = self._load_background_with_opacity(
+                    self.winfo_width(),
+                    self.winfo_height()
                 )
-                if self.bg_label:
-                    self.bg_label.configure(image=self.bg_image)
+                if img:
+                    self.bg_image = ctk.CTkImage(
+                        light_image=img,
+                        dark_image=img,
+                        size=(self.winfo_width(), self.winfo_height())
+                    )
+                    if self.bg_label:
+                        self.bg_label.configure(image=self.bg_image)
             except:
                 pass
 
@@ -1334,7 +1496,7 @@ class WranglerMasterApp(ctk.CTk):
         title = ctk.CTkLabel(
             title_frame,
             text="Wrangler Master Control",
-            font=ctk.CTkFont(size=20, weight="bold")
+            font=self.get_font(size=20, weight="bold")
         )
         title.pack(side="left")
 
@@ -1345,7 +1507,7 @@ class WranglerMasterApp(ctk.CTk):
         self.settings_btn = ctk.CTkButton(
             btn_frame,
             text="Settings",
-            font=ctk.CTkFont(size=12),
+            font=self.get_font(size=12),
             fg_color="gray",
             hover_color="gray30",
             width=90,
@@ -1357,9 +1519,9 @@ class WranglerMasterApp(ctk.CTk):
         self.refresh_btn = ctk.CTkButton(
             btn_frame,
             text="Refresh",
-            font=ctk.CTkFont(size=12),
-            fg_color="#9b59b6",
-            hover_color="#8e44ad",
+            font=self.get_font(size=12),
+            fg_color="#2196f3",
+            hover_color="#1976d2",
             width=90,
             height=32,
             command=self._refresh_all
@@ -1369,7 +1531,7 @@ class WranglerMasterApp(ctk.CTk):
         self.add_btn = ctk.CTkButton(
             btn_frame,
             text="+ Add",
-            font=ctk.CTkFont(size=12),
+            font=self.get_font(size=12),
             fg_color="#3498db",
             hover_color="#2980b9",
             width=90,
@@ -1381,7 +1543,7 @@ class WranglerMasterApp(ctk.CTk):
         self.stop_all_btn = ctk.CTkButton(
             btn_frame,
             text="Stop All",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=self.get_font(size=12, weight="bold"),
             fg_color="#e67e22",
             hover_color="#d35400",
             width=90,
@@ -1393,9 +1555,9 @@ class WranglerMasterApp(ctk.CTk):
         self.resume_all_btn = ctk.CTkButton(
             btn_frame,
             text="Resume All",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#3498db",
-            hover_color="#2980b9",
+            font=self.get_font(size=12, weight="bold"),
+            fg_color="#1565c0",
+            hover_color="#0d47a1",
             width=100,
             height=32,
             command=self._resume_all
@@ -1405,7 +1567,7 @@ class WranglerMasterApp(ctk.CTk):
         self.start_all_btn = ctk.CTkButton(
             btn_frame,
             text="Start All",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=self.get_font(size=12, weight="bold"),
             fg_color="#2ecc71",
             hover_color="#27ae60",
             width=90,
@@ -1431,7 +1593,7 @@ class WranglerMasterApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(
             status_frame,
             text="Ready",
-            font=ctk.CTkFont(size=11),
+            font=self.get_font(size=11),
             text_color="gray"
         )
         self.status_label.pack(side="left", padx=15, pady=8)
@@ -1440,7 +1602,7 @@ class WranglerMasterApp(ctk.CTk):
         self.json_label = ctk.CTkLabel(
             status_frame,
             text="",
-            font=ctk.CTkFont(size=11),
+            font=self.get_font(size=11),
             text_color="gray"
         )
         self.json_label.pack(side="right", padx=15, pady=8)
@@ -1546,7 +1708,7 @@ class WranglerMasterApp(ctk.CTk):
             self.bg_label = None
         self._setup_background()
 
-        self._set_status("Settings applied. Restart for full theme changes.")
+        self._set_status("Settings saved. Theme/font changes require restart.")
 
     def _add_instance_dialog(self):
         """Shows dialog to add a new instance."""
@@ -2013,7 +2175,10 @@ class WranglerMasterApp(ctk.CTk):
         settings = {
             "appearance_mode": self.app_settings.appearance_mode,
             "color_theme": self.app_settings.color_theme,
-            "background_image": self.app_settings.background_image
+            "background_image": self.app_settings.background_image,
+            "background_opacity": self.app_settings.background_opacity,
+            "font_family": self.app_settings.font_family,
+            "font_size": self.app_settings.font_size
         }
 
         try:
@@ -2036,6 +2201,9 @@ class WranglerMasterApp(ctk.CTk):
             self.app_settings.appearance_mode = settings.get("appearance_mode", "dark")
             self.app_settings.color_theme = settings.get("color_theme", "wrangler")
             self.app_settings.background_image = settings.get("background_image", "")
+            self.app_settings.background_opacity = settings.get("background_opacity", 0.3)
+            self.app_settings.font_family = settings.get("font_family", "Segoe UI")
+            self.app_settings.font_size = settings.get("font_size", 13)
 
         except Exception as e:
             print(f"Failed to load app settings: {e}")
