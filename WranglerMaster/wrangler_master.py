@@ -609,7 +609,7 @@ class AdvancedRunDialog(tk.Toplevel):
                  existing_config: Optional[AdvancedRunConfig] = None):
         super().__init__(parent)
         self.title(f"Advanced Run - {instance_name}")
-        self.geometry("400x450")
+        self.geometry("450x450")
         self.resizable(False, False)
         self.configure(bg="#2d2d30")
 
