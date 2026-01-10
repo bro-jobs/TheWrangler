@@ -39,6 +39,14 @@ namespace TheWrangler
     /// </summary>
     public class LisbethHomeHelper
     {
+        private readonly LisbethApi _lisbethApi;
+
+        public LisbethHomeHelper()
+        {
+            _lisbethApi = new LisbethApi();
+            _lisbethApi.Initialize();
+        }
+
         #region Home Settings Model
 
         /// <summary>
@@ -114,11 +122,24 @@ namespace TheWrangler
 
                 Log($"Home location: Zone {homeEntry.ZoneId} ({homeEntry.Area}) at {homeEntry.Position}");
 
-                // Step 3: Navigate to home
+                // Step 3: Navigate to home using Lisbeth's travel API (preferred) or LlamaLibrary fallback
                 var currentZone = WorldManager.ZoneId;
                 Log($"Current zone: {currentZone}, Target zone: {homeEntry.ZoneId}");
 
-                var success = await Navigation.GetTo((ushort)homeEntry.ZoneId, homeEntry.Position);
+                bool success;
+
+                // Try Lisbeth's TravelToWithArea first - it handles more complex navigation
+                if (_lisbethApi.HasTravelApi && !string.IsNullOrEmpty(homeEntry.Area))
+                {
+                    Log($"Using Lisbeth TravelToWithArea: {homeEntry.Area}");
+                    success = await _lisbethApi.TravelToAreaAsync(homeEntry.Area, homeEntry.Position);
+                }
+                else
+                {
+                    // Fallback to LlamaLibrary Navigation
+                    Log("Using LlamaLibrary Navigation.GetTo as fallback");
+                    success = await Navigation.GetTo((ushort)homeEntry.ZoneId, homeEntry.Position);
+                }
 
                 if (success)
                 {
