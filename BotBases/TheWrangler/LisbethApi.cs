@@ -380,7 +380,42 @@ namespace TheWrangler
         public bool HasIncompleteOrders()
         {
             var incomplete = GetIncompleteOrders();
-            return !string.IsNullOrWhiteSpace(incomplete) && incomplete != "{}";
+            // Check for empty object "{}" or empty array "[]" or whitespace
+            return !string.IsNullOrWhiteSpace(incomplete)
+                && incomplete != "{}"
+                && incomplete != "[]";
+        }
+
+        /// <summary>
+        /// Gets Lisbeth's behavior tree Root for manual ticking.
+        /// This is needed for resume operations since RequestRestart only works
+        /// when Lisbeth's behavior tree is being actively ticked.
+        /// </summary>
+        /// <returns>Lisbeth's Root behavior tree, or null if not available</returns>
+        public object GetLisbethRoot()
+        {
+            if (_lisbeth == null)
+            {
+                Log("Warning: Lisbeth not initialized.");
+                return null;
+            }
+
+            try
+            {
+                var rootProp = _lisbeth.GetType().GetProperty("Root");
+                if (rootProp == null)
+                {
+                    Log("Warning: Could not find Root property on Lisbeth.");
+                    return null;
+                }
+
+                return rootProp.GetValue(_lisbeth);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error getting Lisbeth Root: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>
