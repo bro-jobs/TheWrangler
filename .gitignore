@@ -36,3 +36,4 @@ WranglerMaster/WranglerMaster.spec
 WranglerMaster/WranglerMaster.spec
 *.spec
 __pycache__/
+WranglerMaster/dist/app_settings.json
