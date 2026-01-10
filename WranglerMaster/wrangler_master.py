@@ -52,6 +52,19 @@ REQUEST_TIMEOUT = 5  # seconds
 
 
 @dataclass
+class AdvancedRunConfig:
+    """Configuration for advanced run modes."""
+    mode: str = "none"  # "none", "timer", or "schedule"
+    timer_hours: int = 0
+    timer_minutes: int = 30
+    schedule_start_hour: int = 8
+    schedule_start_minute: int = 0
+    schedule_end_hour: int = 22
+    schedule_end_minute: int = 0
+    use_resume: bool = False  # If True, resume orders; if False, run new orders
+
+
+@dataclass
 class WranglerInstance:
     """Represents a Wrangler instance configuration."""
     name: str
@@ -59,10 +72,30 @@ class WranglerInstance:
     port: int
     enabled: bool = True
     go_home_after_session: bool = False  # Go to Lisbeth home after timer/schedule ends
+    advanced_config: Optional[dict] = None  # Persisted AdvancedRunConfig as dict
 
     @property
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
+
+    def get_advanced_config(self) -> AdvancedRunConfig:
+        """Returns the advanced config, creating default if none exists."""
+        if self.advanced_config is None:
+            return AdvancedRunConfig()
+        return AdvancedRunConfig(**self.advanced_config)
+
+    def set_advanced_config(self, config: AdvancedRunConfig):
+        """Saves the advanced config."""
+        self.advanced_config = {
+            "mode": config.mode,
+            "timer_hours": config.timer_hours,
+            "timer_minutes": config.timer_minutes,
+            "schedule_start_hour": config.schedule_start_hour,
+            "schedule_start_minute": config.schedule_start_minute,
+            "schedule_end_hour": config.schedule_end_hour,
+            "schedule_end_minute": config.schedule_end_minute,
+            "use_resume": config.use_resume
+        }
 
 
 @dataclass
@@ -568,33 +601,26 @@ class InstancePanel(ttk.Frame):
 # Advanced Run Dialog
 # =============================================================================
 
-@dataclass
-class AdvancedRunConfig:
-    """Configuration for advanced run modes."""
-    mode: str = "timer"  # "timer" or "schedule"
-    timer_hours: int = 0
-    timer_minutes: int = 30
-    schedule_start_hour: int = 8
-    schedule_start_minute: int = 0
-    schedule_end_hour: int = 22
-    schedule_end_minute: int = 0
-
 
 class AdvancedRunDialog(tk.Toplevel):
-    """Dialog for configuring advanced run options (timer or schedule mode)."""
+    """Dialog for configuring advanced run options (none, timer, or schedule mode)."""
 
-    def __init__(self, parent, instance_name: str, has_incomplete_orders: bool = False):
+    def __init__(self, parent, instance_name: str, has_incomplete_orders: bool = False,
+                 existing_config: Optional[AdvancedRunConfig] = None):
         super().__init__(parent)
         self.title(f"Advanced Run - {instance_name}")
-        self.geometry("400x380")
+        self.geometry("400x450")
         self.resizable(False, False)
         self.configure(bg="#2d2d30")
 
         self.result: Optional[AdvancedRunConfig] = None
         self.has_incomplete_orders = has_incomplete_orders
 
-        # Mode variable
-        self.mode_var = tk.StringVar(value="timer")
+        # Load existing config or use defaults
+        self.config = existing_config or AdvancedRunConfig()
+
+        # Mode variable - load from existing config
+        self.mode_var = tk.StringVar(value=self.config.mode)
 
         self._create_widgets()
 
@@ -620,6 +646,13 @@ class AdvancedRunDialog(tk.Toplevel):
         ).pack(side=tk.LEFT)
 
         tk.Radiobutton(
+            mode_frame, text="None", variable=self.mode_var, value="none",
+            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
+            activebackground="#2d2d30", activeforeground="white",
+            command=self._on_mode_change
+        ).pack(side=tk.LEFT, padx=10)
+
+        tk.Radiobutton(
             mode_frame, text="Timer", variable=self.mode_var, value="timer",
             font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
             activebackground="#2d2d30", activeforeground="white",
@@ -632,6 +665,39 @@ class AdvancedRunDialog(tk.Toplevel):
             activebackground="#2d2d30", activeforeground="white",
             command=self._on_mode_change
         ).pack(side=tk.LEFT)
+
+        # Resume option (applies to all modes)
+        resume_frame = tk.Frame(self, bg="#2d2d30")
+        resume_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+
+        self.resume_var = tk.BooleanVar(value=self.config.use_resume if self.has_incomplete_orders else False)
+        self.resume_check = tk.Checkbutton(
+            resume_frame, text="Resume incomplete orders (instead of starting new)",
+            variable=self.resume_var, font=("Segoe UI", 10),
+            fg="#cccccc", bg="#2d2d30", selectcolor="#3d3d40",
+            activebackground="#2d2d30", activeforeground="white",
+            state=tk.NORMAL if self.has_incomplete_orders else tk.DISABLED
+        )
+        self.resume_check.pack(side=tk.LEFT)
+
+        if not self.has_incomplete_orders:
+            tk.Label(
+                resume_frame, text="(no incomplete orders)",
+                font=("Segoe UI", 9), fg="#666666", bg="#2d2d30"
+            ).pack(side=tk.LEFT, padx=5)
+
+        # None mode description
+        self.none_frame = tk.LabelFrame(
+            self, text="None Mode (Normal Run)", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", padx=15, pady=10
+        )
+        self.none_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        tk.Label(
+            self.none_frame,
+            text="Runs or resumes orders immediately without any timer\nor schedule. The bot will run until orders complete\nor you stop it manually.",
+            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30", justify=tk.LEFT
+        ).pack(anchor="w")
 
         # Timer mode frame
         self.timer_frame = tk.LabelFrame(
@@ -648,7 +714,8 @@ class AdvancedRunDialog(tk.Toplevel):
         timer_input_frame = tk.Frame(self.timer_frame, bg="#2d2d30")
         timer_input_frame.grid(row=0, column=1, sticky="w", pady=5)
 
-        self.timer_hours_var = tk.StringVar(value="0")
+        # Load persisted values
+        self.timer_hours_var = tk.StringVar(value=str(self.config.timer_hours))
         self.timer_hours_entry = tk.Entry(
             timer_input_frame, textvariable=self.timer_hours_var,
             font=("Segoe UI", 10), width=4
@@ -656,7 +723,7 @@ class AdvancedRunDialog(tk.Toplevel):
         self.timer_hours_entry.pack(side=tk.LEFT)
         tk.Label(timer_input_frame, text="hours", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
 
-        self.timer_minutes_var = tk.StringVar(value="30")
+        self.timer_minutes_var = tk.StringVar(value=str(self.config.timer_minutes))
         self.timer_minutes_entry = tk.Entry(
             timer_input_frame, textvariable=self.timer_minutes_var,
             font=("Segoe UI", 10), width=4
@@ -686,7 +753,8 @@ class AdvancedRunDialog(tk.Toplevel):
         start_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
         start_frame.grid(row=0, column=1, sticky="w", pady=5)
 
-        self.start_hour_var = tk.StringVar(value="08")
+        # Load persisted values
+        self.start_hour_var = tk.StringVar(value=f"{self.config.schedule_start_hour:02d}")
         self.start_hour_entry = tk.Entry(
             start_frame, textvariable=self.start_hour_var,
             font=("Segoe UI", 10), width=3
@@ -694,7 +762,7 @@ class AdvancedRunDialog(tk.Toplevel):
         self.start_hour_entry.pack(side=tk.LEFT)
         tk.Label(start_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
 
-        self.start_minute_var = tk.StringVar(value="00")
+        self.start_minute_var = tk.StringVar(value=f"{self.config.schedule_start_minute:02d}")
         self.start_minute_entry = tk.Entry(
             start_frame, textvariable=self.start_minute_var,
             font=("Segoe UI", 10), width=3
@@ -711,7 +779,7 @@ class AdvancedRunDialog(tk.Toplevel):
         end_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
         end_frame.grid(row=1, column=1, sticky="w", pady=5)
 
-        self.end_hour_var = tk.StringVar(value="22")
+        self.end_hour_var = tk.StringVar(value=f"{self.config.schedule_end_hour:02d}")
         self.end_hour_entry = tk.Entry(
             end_frame, textvariable=self.end_hour_var,
             font=("Segoe UI", 10), width=3
@@ -719,7 +787,7 @@ class AdvancedRunDialog(tk.Toplevel):
         self.end_hour_entry.pack(side=tk.LEFT)
         tk.Label(end_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
 
-        self.end_minute_var = tk.StringVar(value="00")
+        self.end_minute_var = tk.StringVar(value=f"{self.config.schedule_end_minute:02d}")
         self.end_minute_entry = tk.Entry(
             end_frame, textvariable=self.end_minute_var,
             font=("Segoe UI", 10), width=3
@@ -729,19 +797,9 @@ class AdvancedRunDialog(tk.Toplevel):
 
         tk.Label(
             self.schedule_frame,
-            text="Runs daily: starts at start time, stops at end time.\nResumes automatically the next day.",
+            text="Runs daily: starts at start time, stops at end time.",
             font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
-        # Resume option for schedule mode
-        self.resume_var = tk.BooleanVar(value=self.has_incomplete_orders)
-        self.resume_check = tk.Checkbutton(
-            self.schedule_frame, text="Resume incomplete orders (if available)",
-            variable=self.resume_var, font=("Segoe UI", 9),
-            fg="#cccccc", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white"
-        )
-        self.resume_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         # Buttons
         btn_frame = tk.Frame(self, bg="#2d2d30")
@@ -764,46 +822,55 @@ class AdvancedRunDialog(tk.Toplevel):
 
     def _on_mode_change(self):
         """Updates frame visibility based on selected mode."""
-        if self.mode_var.get() == "timer":
-            self.timer_frame.config(fg="white")
-            self.schedule_frame.config(fg="#666666")
-            for child in self.timer_frame.winfo_children():
-                if isinstance(child, tk.Entry):
-                    child.config(state=tk.NORMAL)
-            for child in self.schedule_frame.winfo_children():
-                if isinstance(child, tk.Entry):
-                    child.config(state=tk.DISABLED)
-            self.resume_check.config(state=tk.DISABLED)
-        else:
-            self.timer_frame.config(fg="#666666")
-            self.schedule_frame.config(fg="white")
-            for child in self.timer_frame.winfo_children():
-                if isinstance(child, tk.Entry):
-                    child.config(state=tk.DISABLED)
-            for child in self.schedule_frame.winfo_children():
-                if isinstance(child, tk.Entry):
-                    child.config(state=tk.NORMAL)
-            self.resume_check.config(state=tk.NORMAL)
+        mode = self.mode_var.get()
+
+        # Update frame styling based on mode
+        self.none_frame.config(fg="white" if mode == "none" else "#666666")
+        self.timer_frame.config(fg="white" if mode == "timer" else "#666666")
+        self.schedule_frame.config(fg="white" if mode == "schedule" else "#666666")
+
+        # Enable/disable timer entries
+        for child in self.timer_frame.winfo_children():
+            if isinstance(child, tk.Frame):
+                for subchild in child.winfo_children():
+                    if isinstance(subchild, tk.Entry):
+                        subchild.config(state=tk.NORMAL if mode == "timer" else tk.DISABLED)
+            elif isinstance(child, tk.Entry):
+                child.config(state=tk.NORMAL if mode == "timer" else tk.DISABLED)
+
+        # Enable/disable schedule entries
+        for child in self.schedule_frame.winfo_children():
+            if isinstance(child, tk.Frame):
+                for subchild in child.winfo_children():
+                    if isinstance(subchild, tk.Entry):
+                        subchild.config(state=tk.NORMAL if mode == "schedule" else tk.DISABLED)
+            elif isinstance(child, tk.Entry):
+                child.config(state=tk.NORMAL if mode == "schedule" else tk.DISABLED)
 
     def _on_start(self):
         """Validates and returns result."""
         config = AdvancedRunConfig()
         config.mode = self.mode_var.get()
+        config.use_resume = self.resume_var.get() if self.has_incomplete_orders else False
 
         try:
+            # Always save timer values even if not in timer mode (for persistence)
+            config.timer_hours = int(self.timer_hours_var.get())
+            config.timer_minutes = int(self.timer_minutes_var.get())
+
+            # Always save schedule values even if not in schedule mode (for persistence)
+            config.schedule_start_hour = int(self.start_hour_var.get())
+            config.schedule_start_minute = int(self.start_minute_var.get())
+            config.schedule_end_hour = int(self.end_hour_var.get())
+            config.schedule_end_minute = int(self.end_minute_var.get())
+
+            # Validate based on current mode
             if config.mode == "timer":
-                config.timer_hours = int(self.timer_hours_var.get())
-                config.timer_minutes = int(self.timer_minutes_var.get())
                 if config.timer_hours < 0 or config.timer_minutes < 0:
                     raise ValueError("Time cannot be negative")
                 if config.timer_hours == 0 and config.timer_minutes == 0:
                     raise ValueError("Timer must be at least 1 minute")
-            else:
-                config.schedule_start_hour = int(self.start_hour_var.get())
-                config.schedule_start_minute = int(self.start_minute_var.get())
-                config.schedule_end_hour = int(self.end_hour_var.get())
-                config.schedule_end_minute = int(self.end_minute_var.get())
-
+            elif config.mode == "schedule":
                 # Validate ranges
                 if not (0 <= config.schedule_start_hour <= 23):
                     raise ValueError("Start hour must be 0-23")
@@ -1216,8 +1283,11 @@ class WranglerMasterApp:
         panel = self.panels.get(key)
         has_incomplete = panel.status.has_incomplete_orders if panel else False
 
-        # Show dialog
-        dialog = AdvancedRunDialog(self.root, instance.name, has_incomplete)
+        # Get existing config from instance
+        existing_config = instance.get_advanced_config()
+
+        # Show dialog with existing config
+        dialog = AdvancedRunDialog(self.root, instance.name, has_incomplete, existing_config)
         self.root.wait_window(dialog)
 
         if dialog.result is None:
@@ -1225,8 +1295,12 @@ class WranglerMasterApp:
 
         config = dialog.result
 
+        # Save the config to the instance for persistence
+        instance.set_advanced_config(config)
+        self._save_config()
+
         # Check for default JSON path for non-resume runs
-        if not self.default_json_path:
+        if not config.use_resume and not self.default_json_path:
             path = filedialog.askopenfilename(
                 title="Select JSON File to Run",
                 filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
@@ -1236,12 +1310,38 @@ class WranglerMasterApp:
             self.default_json_path = path
             self._save_config()
 
-        if config.mode == "timer":
+        if config.mode == "none":
+            # None mode: just run or resume immediately, no timer/schedule
+            self._start_none_mode(instance, config)
+        elif config.mode == "timer":
             # Timer mode: start now, stop after duration
             self._start_timer_mode(instance, config)
         else:
             # Schedule mode: manage based on current time
             self._start_schedule_mode(instance, config)
+
+    def _start_none_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
+        """Starts none mode - just runs or resumes immediately without timer/schedule."""
+        action = "Resuming" if config.use_resume else "Starting"
+        self._set_status(f"{instance.name}: {action}...")
+
+        def do_run():
+            if config.use_resume:
+                success, message = WranglerClient.resume_orders(instance)
+                action_past = "Resumed"
+            else:
+                success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
+                action_past = "Started"
+
+            self.root.after(0, lambda: self._set_status(
+                f"{instance.name}: {action_past}" if success else f"{instance.name} failed: {message}"
+            ))
+            time.sleep(1)
+            status = WranglerClient.get_status(instance)
+            self.root.after(0, lambda: self._update_panel(instance, status))
+
+        thread = threading.Thread(target=do_run, daemon=True)
+        thread.start()
 
     def _start_timer_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
         """Starts timer mode for an instance."""
@@ -1255,13 +1355,20 @@ class WranglerMasterApp:
             "instance": instance
         }
 
-        self._set_status(f"{instance.name}: Timer started ({config.timer_hours}h {config.timer_minutes}m)")
+        action = "Resuming" if config.use_resume else "Starting"
+        self._set_status(f"{instance.name}: Timer started ({config.timer_hours}h {config.timer_minutes}m), {action.lower()}...")
 
         # Start the order now
         def do_run():
-            success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
+            if config.use_resume:
+                success, message = WranglerClient.resume_orders(instance)
+                action_past = "Resumed"
+            else:
+                success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
+                action_past = "Started"
+
             self.root.after(0, lambda: self._set_status(
-                f"{instance.name}: Started (timer mode)" if success else f"{instance.name} failed: {message}"
+                f"{instance.name}: {action_past} (timer mode)" if success else f"{instance.name} failed: {message}"
             ))
             time.sleep(1)
             status = WranglerClient.get_status(instance)
@@ -1280,8 +1387,9 @@ class WranglerMasterApp:
             "last_action": None  # "started" or "stopped"
         }
 
+        mode_desc = "resume" if config.use_resume else "run"
         self._set_status(
-            f"{instance.name}: Schedule activated "
+            f"{instance.name}: Schedule activated ({mode_desc}) "
             f"({config.schedule_start_hour:02d}:{config.schedule_start_minute:02d} - "
             f"{config.schedule_end_hour:02d}:{config.schedule_end_minute:02d})"
         )
@@ -1364,11 +1472,11 @@ class WranglerMasterApp:
         if in_window:
             # Should be running
             if last_action != "started" and not status.is_executing:
-                # Start or resume
+                # Start or resume based on config.use_resume
                 schedule_data["last_action"] = "started"
 
-                def do_start(inst=instance, has_incomplete=status.has_incomplete_orders):
-                    if has_incomplete:
+                def do_start(inst=instance, use_resume=config.use_resume):
+                    if use_resume:
                         success, message = WranglerClient.resume_orders(inst)
                         action = "Resumed"
                     else:

@@ -146,6 +146,11 @@ namespace TheWrangler
         {
             _lisbethApi = new LisbethApi();
             _levelingController = new LevelingController();
+
+            // Initialize Lisbeth API early so Resume button works on first launch
+            // Lisbeth stores incomplete orders in a file, so this should work
+            // even before any orders are executed
+            _lisbethApi.Initialize();
         }
 
         #endregion
