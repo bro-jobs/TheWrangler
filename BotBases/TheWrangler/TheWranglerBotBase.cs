@@ -394,11 +394,59 @@ namespace TheWrangler
                     // Continue anyway - maybe it was clicked manually or the dialog behavior changed
                 }
 
-                // Small delay to let orders start processing
-                await Coroutine.Sleep(1000);
+                // IMPORTANT: Wait for orders to actually START before polling for completion
+                // Lisbeth takes time to initialize and begin processing after the dialog is clicked
+                const int startupPollIntervalMs = 1000;
+                const int maxStartupPolls = 60; // 60 seconds to start
+                bool ordersStarted = false;
+
+                Log("Waiting for Lisbeth to start processing orders...");
+                for (int i = 0; i < maxStartupPolls; i++)
+                {
+                    await Coroutine.Sleep(startupPollIntervalMs);
+
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    Log($"DEBUG: GetActiveOrders returned: {(string.IsNullOrWhiteSpace(activeOrders) ? "(empty)" : activeOrders.Substring(0, Math.Min(100, activeOrders.Length)))}...");
+
+                    if (!string.IsNullOrWhiteSpace(activeOrders) && activeOrders != "{}" && activeOrders != "[]")
+                    {
+                        Log("Orders are now active, monitoring for completion...");
+                        ordersStarted = true;
+                        break;
+                    }
+
+                    // Also check if incomplete orders changed (Lisbeth might have cleared them)
+                    var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                    if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}")
+                    {
+                        // No more incomplete orders - Lisbeth cleared them (completed or failed)
+                        Log("Incomplete orders cleared - Lisbeth has processed them.");
+                        _controller.OnOrderExecutionComplete(true);
+                        return;
+                    }
+                }
+
+                if (!ordersStarted)
+                {
+                    // Lisbeth didn't start within the timeout
+                    // Check if there are still incomplete orders
+                    var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                    if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}")
+                    {
+                        Log("Orders completed (no incomplete orders remain).");
+                        _controller.OnOrderExecutionComplete(true);
+                    }
+                    else
+                    {
+                        Log("Warning: Lisbeth did not start processing orders within 60 seconds.");
+                        Log("There may be an issue with the resume. Check Lisbeth's state manually.");
+                        _controller.OnOrderExecutionError("Lisbeth did not start processing orders");
+                    }
+                    return;
+                }
 
                 // Poll for completion indefinitely - orders can take days or weeks
-                const int pollIntervalMs = 2000;
+                const int pollIntervalMs = 5000; // Check every 5 seconds
 
                 while (true)
                 {
