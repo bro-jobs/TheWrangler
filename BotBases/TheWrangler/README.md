@@ -313,7 +313,26 @@ These methods are available on Lisbeth's API and can be bound in `LisbethApi.cs`
 | `EquipOptimalGear` | `Task EquipOptimalGear()` | Equip best gear for current class |
 | `ExtractMateria` | `Task ExtractMateria()` | Extract spiritbound materia |
 | `SelfRepair` | `Task SelfRepair()` | Repair own gear |
-| `TravelTo` | `Task<bool> TravelTo(uint zone, uint subzone, Vector3 pos)` | Navigate to location |
+| `TravelTo` | `Task<bool> TravelTo(uint zone, uint subzone, Vector3 pos, Func<bool> condition, bool skipLanding)` | Navigate to location |
+| `TravelToWithArea` | `Task<bool> TravelToWithArea(string area, Vector3 pos, Func<bool> condition, bool skipLanding)` | Navigate using area name |
+
+### TravelTo/TravelToWithArea Condition Parameter
+
+**IMPORTANT DISCOVERY:** The `condition` parameter in Lisbeth's travel methods uses inverted logic:
+- `condition() => true` = **keep navigating** (continue)
+- `condition() => false` = **stop navigation** (abort)
+
+This is NOT a "stop condition" but a "continue condition". To navigate without early stopping:
+```csharp
+// Correct: always return true to keep going
+await api.TravelToAreaAsync("Gridania (The Roost)", position, () => true, false);
+
+// WRONG: returning false will immediately stop navigation!
+await api.TravelToAreaAsync("Gridania (The Roost)", position, () => false, false);
+```
+
+The `TravelToWithArea` method is particularly useful when you have an area name from Lisbeth's
+settings (like home locations), as it handles teleportation, flying, and complex navigation.
 | `Craft` | `Task Craft(bool quickSynth)` | Execute crafting |
 
 ---
