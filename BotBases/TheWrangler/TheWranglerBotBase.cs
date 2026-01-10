@@ -68,8 +68,10 @@ namespace TheWrangler
         // Pending async debug command (for /test5 go home)
         private Action<string> _pendingGoHomeCallback;
 
-        // Startup stabilization flag - prevents CoroutineStoppedException on first tick
-        private bool _startupStabilized;
+        // Startup stabilization counter - wait multiple ticks before processing orders
+        // This prevents CoroutineStoppedException that can occur when the behavior tree
+        // is first initialized and the coroutine system isn't fully stable yet.
+        private int _startupTickCount;
 
         #endregion
 
@@ -145,7 +147,7 @@ namespace TheWrangler
         public override void Start()
         {
             Log("TheWrangler started.");
-            _startupStabilized = false; // Reset for each start cycle
+            _startupTickCount = 0; // Reset for each start cycle
             _controller.Initialize();
         }
 
@@ -157,8 +159,8 @@ namespace TheWrangler
         {
             Log("TheWrangler stopping - beginning cleanup...");
 
-            // Reset startup stabilization flag for next start
-            _startupStabilized = false;
+            // Reset startup stabilization counter for next start
+            _startupTickCount = 0;
 
             // Clear any pending async operations
             _pendingGoHomeCallback = null;
@@ -194,12 +196,13 @@ namespace TheWrangler
         /// </summary>
         private async Task<bool> MainLoopAsync()
         {
-            // Startup stabilization: Wait a tick before processing pending orders
+            // Startup stabilization: Wait several ticks before processing pending orders
             // This prevents CoroutineStoppedException that can occur when the behavior
             // tree is first initialized and the coroutine system isn't fully stable yet.
-            if (!_startupStabilized)
+            const int requiredStartupTicks = 3;
+            if (_startupTickCount < requiredStartupTicks)
             {
-                _startupStabilized = true;
+                _startupTickCount++;
                 await Coroutine.Yield();
                 return false;
             }
@@ -272,8 +275,6 @@ namespace TheWrangler
         /// <summary>
         /// Executes the pending order by awaiting Lisbeth directly.
         /// The await handles all coroutine integration automatically.
-        /// Includes retry logic for CoroutineStoppedException which can occur
-        /// when resuming after a forced stop (Lisbeth's internal state is corrupted).
         /// </summary>
         private async Task ExecuteOrderAsync()
         {
@@ -282,69 +283,36 @@ namespace TheWrangler
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
 
-            // Retry once for CoroutineStoppedException - but ONLY if bot is still running.
-            // If the bot was stopped externally, we must let the exception propagate
-            // so the coroutine system can properly dispose of the coroutine.
-            const int maxRetries = 1;
-            int attempt = 0;
-
-            while (attempt <= maxRetries)
+            try
             {
-                try
+                // For resume orders, use filtered primary orders
+                if (isResume)
                 {
-                    if (attempt > 0)
-                    {
-                        Log($"Retry attempt {attempt}...");
-                        // Small delay before retry to let systems stabilize
-                        await Coroutine.Sleep(500);
-                    }
+                    await ExecuteResumeOrderAsync(json);
+                }
+                else
+                {
+                    // Await Lisbeth directly - this is the key!
+                    // Lisbeth's ExecuteOrders is coroutine-compatible.
+                    bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
+                    _controller.OnOrderExecutionComplete(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Let CoroutineStoppedException propagate - NEVER catch it
+                // This is critical for proper coroutine cleanup
+                if (ex.GetType().Name == "CoroutineStoppedException")
+                {
+                    Log("CoroutineStoppedException - propagating for proper cleanup.");
+                    throw;
+                }
 
-                    // For resume orders, use RequestRestart instead of ExecuteOrders
-                    // RequestRestart doesn't re-expand suborders, which prevents duplication
-                    if (isResume)
-                    {
-                        await ExecuteResumeOrderAsync(json);
-                    }
-                    else
-                    {
-                        // Await Lisbeth directly - this is the key!
-                        // Lisbeth's ExecuteOrders is coroutine-compatible.
-                        bool result = await _controller.LisbethApi.ExecuteOrdersAsync(json, ignoreHome);
-                        _controller.OnOrderExecutionComplete(result);
-                    }
-                    return; // Success - exit the retry loop
-                }
-                catch (Exception ex) when (ex.GetType().Name == "CoroutineStoppedException" && attempt < maxRetries)
-                {
-                    // CRITICAL: Only retry if the bot is still running!
-                    // If the bot was stopped, we must let the exception propagate
-                    // so the coroutine system can properly clean up.
-                    if (!TreeRoot.IsRunning)
-                    {
-                        Log("Bot was stopped - letting CoroutineStoppedException propagate for proper cleanup.");
-                        throw;
-                    }
-
-                    // This can happen when the coroutine system is unstable or
-                    // Lisbeth's internal state is corrupted. Retry once.
-                    Log($"CoroutineStoppedException on attempt {attempt + 1}, will retry...");
-                    attempt++;
-                }
-                catch (Exception ex)
-                {
-                    // Log full exception details for debugging
-                    Log($"Error executing order: {ex.Message}");
-                    Log($"Exception type: {ex.GetType().FullName}");
-                    Log($"Stack trace: {ex.StackTrace}");
-                    if (ex.InnerException != null)
-                    {
-                        Log($"Inner exception: {ex.InnerException.Message}");
-                        Log($"Inner stack trace: {ex.InnerException.StackTrace}");
-                    }
-                    Logging.WriteException(ex);
-                    _controller.OnOrderExecutionError(ex.Message);
-                    return; // Exit on non-retryable error
-                }
+                // Log full exception details for debugging
+                Log($"Error executing order: {ex.Message}");
+                Log($"Exception type: {ex.GetType().FullName}");
+                Logging.WriteException(ex);
+                _controller.OnOrderExecutionError(ex.Message);
             }
         }
 
