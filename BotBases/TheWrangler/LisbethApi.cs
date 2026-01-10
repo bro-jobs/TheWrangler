@@ -37,6 +37,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Clio.Utilities;
 using ff14bot.Helpers;
 using ff14bot.Managers;
 
@@ -65,6 +66,10 @@ namespace TheWrangler
         private Func<Task> _stopGently;
         private Action _openWindow;
         private Action<string> _requestRestart;
+
+        // Travel API Delegates
+        private Func<uint, uint, Vector3, Func<bool>, bool, Task<bool>> _travelTo;
+        private Func<string, Vector3, Func<bool>, bool, Task<bool>> _travelToWithArea;
 
         #endregion
 
@@ -210,7 +215,13 @@ namespace TheWrangler
                 _openWindow = CreateDelegate<Action>(apiObject, "OpenWindow");
                 _requestRestart = CreateDelegate<Action<string>>(apiObject, "RequestRestart");
 
-                Log("Additional API methods bound successfully.");
+                // Bind travel methods - these provide better navigation than LlamaLibrary
+                // TravelTo(uint zone, uint subzone, Vector3 pos, Func<bool> condition, bool skipLanding)
+                _travelTo = CreateDelegate<Func<uint, uint, Vector3, Func<bool>, bool, Task<bool>>>(apiObject, "TravelTo");
+                // TravelToWithArea(string area, Vector3 pos, Func<bool> condition, bool skipLanding)
+                _travelToWithArea = CreateDelegate<Func<string, Vector3, Func<bool>, bool, Task<bool>>>(apiObject, "TravelToWithArea");
+
+                Log($"Additional API methods bound. TravelTo: {_travelTo != null}, TravelToWithArea: {_travelToWithArea != null}");
             }
             catch (Exception ex)
             {
@@ -445,6 +456,94 @@ namespace TheWrangler
                 Log($"StopGently exception (stop may still work): {ex.Message}");
             }
         }
+
+        #endregion
+
+        #region Travel Methods
+
+        /// <summary>
+        /// Returns true if the TravelTo method is available.
+        /// </summary>
+        public bool HasTravelApi => _travelTo != null || _travelToWithArea != null;
+
+        /// <summary>
+        /// Travels to a specific location using Lisbeth's navigation.
+        /// This handles teleportation, flying, and complex navigation better than LlamaLibrary.
+        /// </summary>
+        /// <param name="zoneId">Target zone ID</param>
+        /// <param name="subZoneId">Target subzone ID (use 0 if unknown)</param>
+        /// <param name="position">Target position in the zone</param>
+        /// <param name="stopCondition">Optional condition to stop early (null = never stop early)</param>
+        /// <param name="skipLanding">If true, doesn't land after flying</param>
+        /// <returns>True if navigation succeeded</returns>
+        public async Task<bool> TravelToAsync(uint zoneId, uint subZoneId, Vector3 position, Func<bool> stopCondition = null, bool skipLanding = false)
+        {
+            if (_travelTo == null)
+            {
+                Log("Warning: TravelTo method not available.");
+                return false;
+            }
+
+            // Call StartAction before first execution to initialize Lisbeth's systems
+            if (!_hasStarted && _startAction != null)
+            {
+                Log("Calling Lisbeth StartAction to initialize systems...");
+                _startAction.Invoke();
+                _hasStarted = true;
+            }
+
+            try
+            {
+                Log($"TravelTo: Zone {zoneId}, SubZone {subZoneId}, Position {position}");
+                return await _travelTo(zoneId, subZoneId, position, stopCondition, skipLanding);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error in TravelTo: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Travels to a specific location using the area name.
+        /// Useful when you have the area name (like "Gridania (The Roost)") from Lisbeth settings.
+        /// </summary>
+        /// <param name="area">Area name (e.g., "Gridania (The Roost)")</param>
+        /// <param name="position">Target position</param>
+        /// <param name="stopCondition">Optional condition to stop early</param>
+        /// <param name="skipLanding">If true, doesn't land after flying</param>
+        /// <returns>True if navigation succeeded</returns>
+        public async Task<bool> TravelToAreaAsync(string area, Vector3 position, Func<bool> stopCondition = null, bool skipLanding = false)
+        {
+            if (_travelToWithArea == null)
+            {
+                Log("Warning: TravelToWithArea method not available.");
+                return false;
+            }
+
+            // Call StartAction before first execution to initialize Lisbeth's systems
+            if (!_hasStarted && _startAction != null)
+            {
+                Log("Calling Lisbeth StartAction to initialize systems...");
+                _startAction.Invoke();
+                _hasStarted = true;
+            }
+
+            try
+            {
+                Log($"TravelToWithArea: {area}, Position {position}");
+                return await _travelToWithArea(area, position, stopCondition, skipLanding);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error in TravelToWithArea: {ex.Message}");
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region Lifecycle
 
         /// <summary>
         /// Calls Lisbeth's StopAction to clean up resources.
