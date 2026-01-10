@@ -86,6 +86,11 @@ namespace TheWrangler
         public string PendingOrderJson { get; private set; }
 
         /// <summary>
+        /// Flag indicating the pending order is a resume (use RequestRestart, not ExecuteOrders).
+        /// </summary>
+        public bool IsResumingOrder { get; private set; }
+
+        /// <summary>
         /// Returns true if there's a pending order waiting to execute.
         /// </summary>
         public bool HasPendingOrder => !string.IsNullOrEmpty(PendingOrderJson);
@@ -291,21 +296,23 @@ namespace TheWrangler
         /// Gets and clears the pending order data.
         /// Called by behavior tree when starting execution.
         /// </summary>
-        /// <returns>Tuple of (json, ignoreHome)</returns>
-        public (string json, bool ignoreHome) GetPendingOrderData()
+        /// <returns>Tuple of (json, ignoreHome, isResume)</returns>
+        public (string json, bool ignoreHome, bool isResume) GetPendingOrderData()
         {
             var json = PendingOrderJson;
             var ignoreHome = WranglerSettings.Instance.IgnoreHome;
+            var isResume = IsResumingOrder;
 
             // Clear pending and mark as executing
             PendingOrderJson = null;
+            IsResumingOrder = false;
             IsExecuting = true;
             _executionStartTime = DateTime.Now;
 
-            OnStatusChanged("Running orders...");
-            OnLogMessage("Executing Lisbeth orders...");
+            OnStatusChanged(isResume ? "Resuming orders..." : "Running orders...");
+            OnLogMessage(isResume ? "Resuming Lisbeth orders..." : "Executing Lisbeth orders...");
 
-            return (json, ignoreHome);
+            return (json, ignoreHome, isResume);
         }
 
         /// <summary>
@@ -421,7 +428,9 @@ namespace TheWrangler
 
             // Queue the incomplete orders as a pending order
             // The behavior tree will execute them on the bot thread
+            // Mark as resume so we use RequestRestart instead of ExecuteOrders
             PendingOrderJson = incompleteOrders;
+            IsResumingOrder = true;
 
             return true;
         }
