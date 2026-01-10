@@ -350,7 +350,7 @@ namespace TheWrangler
                 // Parse the incomplete orders JSON and filter to primary only
                 var orders = Newtonsoft.Json.Linq.JArray.Parse(json);
                 var primaryOrders = new Newtonsoft.Json.Linq.JArray(
-                    orders.Where(o => o["IsPrimary"]?.Value<bool>() == true)
+                    orders.Where(o => (bool?)o["IsPrimary"] == true)
                 );
 
                 int totalCount = orders.Count;
