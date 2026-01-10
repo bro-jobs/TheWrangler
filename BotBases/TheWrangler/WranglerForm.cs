@@ -1112,17 +1112,20 @@ namespace TheWrangler
             _controller.SyncStateWithBot();
 
             // Order Mode
-            btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !_controller.IsExecuting;
+            bool isBusy = _controller.IsExecuting || _controller.HasPendingOrder;
+
+            btnRun.Enabled = WranglerSettings.Instance.HasValidJsonPath && !isBusy;
 
             // Resume All button is enabled if:
-            // 1. Not currently executing
+            // 1. Not currently executing or pending
             // 2. Either the resume file exists OR there are incomplete orders in memory
-            bool canResume = !_controller.IsExecuting &&
+            bool canResume = !isBusy &&
                 (_controller.HasResumeFile() || _controller.HasIncompleteOrders());
             btnResumeAll.Enabled = canResume;
 
-            btnStopGently.Enabled = _controller.IsExecuting;
-            if (!_controller.IsExecuting)
+            // Stop Gently is enabled when executing OR when an order is pending
+            btnStopGently.Enabled = isBusy;
+            if (!isBusy)
             {
                 btnRun.Text = "Start";
                 btnStopGently.Text = "Stop Gently";
