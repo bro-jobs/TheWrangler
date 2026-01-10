@@ -65,6 +65,10 @@ namespace TheWrangler
         private WranglerForm _form;
         private RemoteServer _remoteServer;
 
+        // Pending async debug command (for /test5 go home)
+        private Action<string> _pendingGoHomeCallback;
+        private readonly LisbethHomeHelper _homeHelper = new LisbethHomeHelper();
+
         #endregion
 
         #region BotBase Properties
@@ -183,8 +187,13 @@ namespace TheWrangler
                 ExecuteDebugCommand(debugCmd);
             }
 
+            // Check if there's a pending go home action (async debug command)
+            if (_pendingGoHomeCallback != null)
+            {
+                await ExecuteGoHomeAsync();
+            }
             // Check if there's a pending order to execute
-            if (_controller.HasPendingOrder)
+            else if (_controller.HasPendingOrder)
             {
                 await ExecuteOrderAsync();
             }
@@ -202,6 +211,35 @@ namespace TheWrangler
 
             // Return false to allow tree to re-evaluate (calls us again next tick)
             return false;
+        }
+
+        /// <summary>
+        /// Executes the pending "go home" action.
+        /// </summary>
+        private async Task ExecuteGoHomeAsync()
+        {
+            var callback = _pendingGoHomeCallback;
+            _pendingGoHomeCallback = null; // Clear before execution
+
+            try
+            {
+                Log("Executing Go Home navigation...");
+                var result = await _homeHelper.GoHomeAsync();
+
+                if (result.Success)
+                {
+                    callback?.Invoke($"Success: {result.Message}");
+                }
+                else
+                {
+                    callback?.Invoke($"Failed: {result.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Error in Go Home: {ex.Message}");
+                callback?.Invoke($"Error: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -273,6 +311,14 @@ namespace TheWrangler
         {
             try
             {
+                // Special handling for async commands
+                if (cmd.Command.ToLower() == "/test5")
+                {
+                    // Queue go home for async execution in MainLoopAsync
+                    _pendingGoHomeCallback = cmd.ResultCallback;
+                    return;
+                }
+
                 var result = cmd.Command.ToLower() switch
                 {
                     "/test4" => ExecuteDebugTest4_ListNpcs(),
