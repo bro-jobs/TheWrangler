@@ -122,28 +122,21 @@ namespace TheWrangler
 
                 Log($"Home location: Zone {homeEntry.ZoneId} ({homeEntry.Area}) at {homeEntry.Position}");
 
-                // Step 3: Navigate to home
+                // Step 3: Navigate to home using Lisbeth's travel API
                 var currentZone = WorldManager.ZoneId;
                 Log($"Current zone: {currentZone}, Target zone: {homeEntry.ZoneId}");
 
                 bool success;
 
-                // If already in the same zone, use LlamaLibrary for local movement
-                // Lisbeth's TravelTo returns "0 paths" and may not work well for same-zone movement
-                if (currentZone == homeEntry.ZoneId)
-                {
-                    Log("Already in target zone, using LlamaLibrary Navigation.GetTo for local movement");
-                    success = await Navigation.GetTo((ushort)homeEntry.ZoneId, homeEntry.Position);
-                }
-                // For cross-zone travel, use Lisbeth's TravelToWithArea (handles teleports, flying, etc.)
-                else if (_lisbethApi.HasTravelApi && !string.IsNullOrEmpty(homeEntry.Area))
+                // Use Lisbeth's TravelToWithArea - it handles teleports, flying, local movement, everything
+                if (_lisbethApi.HasTravelApi && !string.IsNullOrEmpty(homeEntry.Area))
                 {
                     Log($"Using Lisbeth TravelToWithArea: {homeEntry.Area}");
                     success = await _lisbethApi.TravelToAreaAsync(homeEntry.Area, homeEntry.Position);
                 }
                 else
                 {
-                    // Fallback to LlamaLibrary Navigation
+                    // Fallback to LlamaLibrary Navigation if Lisbeth travel not available
                     Log("Using LlamaLibrary Navigation.GetTo as fallback");
                     success = await Navigation.GetTo((ushort)homeEntry.ZoneId, homeEntry.Position);
                 }
