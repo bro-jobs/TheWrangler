@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Callable
 
@@ -75,6 +76,9 @@ class InstanceStatus:
     bot_running: bool = False
     reachable: bool = False
     error: Optional[str] = None
+    character_name: str = "Unknown"
+    world_name: str = "Unknown"
+    runtime_seconds: int = 0
 
 
 # =============================================================================
@@ -104,6 +108,9 @@ class WranglerClient:
                 status.current_file = data.get("currentFile", "None")
                 status.api_status = data.get("apiStatus", "Unknown")
                 status.bot_running = data.get("botRunning", False)
+                status.character_name = data.get("characterName", "Unknown")
+                status.world_name = data.get("worldName", "Unknown")
+                status.runtime_seconds = data.get("runtimeSeconds", 0)
                 status.reachable = True
             else:
                 status.error = f"HTTP {response.status_code}"
@@ -223,7 +230,8 @@ class InstancePanel(ttk.Frame):
     }
 
     def __init__(self, parent, instance: WranglerInstance,
-                 on_run: Callable, on_stop: Callable, on_resume: Callable, on_remove: Callable):
+                 on_run: Callable, on_stop: Callable, on_resume: Callable,
+                 on_advanced_run: Callable, on_remove: Callable):
         super().__init__(parent, padding=10)
 
         self.instance = instance
@@ -231,6 +239,7 @@ class InstancePanel(ttk.Frame):
         self.on_run = on_run
         self.on_stop = on_stop
         self.on_resume = on_resume
+        self.on_advanced_run = on_advanced_run
         self.on_remove = on_remove
 
         self._create_widgets()
@@ -274,6 +283,26 @@ class InstancePanel(ttk.Frame):
             fg="#cccccc",
             bg="#2d2d30",
             width=12,
+            anchor="w"
+        )
+
+        # Character info label
+        self.character_label = tk.Label(
+            self.container,
+            text="Character: Unknown",
+            font=("Segoe UI", 9),
+            fg="#aaaaaa",
+            bg="#2d2d30",
+            anchor="w"
+        )
+
+        # Runtime label
+        self.runtime_label = tk.Label(
+            self.container,
+            text="",
+            font=("Segoe UI", 9),
+            fg="#2ecc71",
+            bg="#2d2d30",
             anchor="w"
         )
 
@@ -329,6 +358,19 @@ class InstancePanel(ttk.Frame):
             command=self._on_stop_click
         )
 
+        self.advanced_btn = tk.Button(
+            self.button_frame,
+            text="Advanced",
+            font=("Segoe UI", 9),
+            bg="#9b59b6",
+            fg="white",
+            activebackground="#8e44ad",
+            activeforeground="white",
+            relief=tk.FLAT,
+            width=8,
+            command=self._on_advanced_click
+        )
+
         self.remove_btn = tk.Button(
             self.button_frame,
             text="X",
@@ -356,6 +398,12 @@ class InstancePanel(ttk.Frame):
         self.status_indicator.pack(side=tk.LEFT)
         self.status_text.pack(side=tk.LEFT, padx=5)
 
+        # Character info
+        self.character_label.pack(fill=tk.X, padx=10, pady=1)
+
+        # Runtime
+        self.runtime_label.pack(fill=tk.X, padx=10, pady=1)
+
         # File
         self.file_label.pack(fill=tk.X, padx=10, pady=2)
 
@@ -364,6 +412,7 @@ class InstancePanel(ttk.Frame):
         self.run_btn.pack(side=tk.LEFT, padx=2)
         self.resume_btn.pack(side=tk.LEFT, padx=2)
         self.stop_btn.pack(side=tk.LEFT, padx=2)
+        self.advanced_btn.pack(side=tk.LEFT, padx=2)
         self.remove_btn.pack(side=tk.RIGHT, padx=2)
 
     def update_status(self, status: InstanceStatus):
@@ -394,6 +443,27 @@ class InstancePanel(ttk.Frame):
         self.status_indicator.config(fg=color)
         self.status_text.config(text=state_text)
 
+        # Update character label
+        if status.reachable and status.character_name != "Unknown":
+            char_text = f"{status.character_name} @ {status.world_name}"
+            self.character_label.config(text=char_text, fg="#cccccc")
+        else:
+            self.character_label.config(text="Character: Unknown", fg="#666666")
+
+        # Update runtime label
+        if status.is_executing and status.runtime_seconds > 0:
+            hours, remainder = divmod(status.runtime_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            if hours > 0:
+                runtime_text = f"Runtime: {hours}h {minutes}m {seconds}s"
+            elif minutes > 0:
+                runtime_text = f"Runtime: {minutes}m {seconds}s"
+            else:
+                runtime_text = f"Runtime: {seconds}s"
+            self.runtime_label.config(text=runtime_text, fg="#2ecc71")
+        else:
+            self.runtime_label.config(text="", fg="#2ecc71")
+
         # Update file label
         file_text = status.current_file if status.current_file else "None"
         if len(file_text) > 30:
@@ -404,10 +474,12 @@ class InstancePanel(ttk.Frame):
         can_run = status.reachable and status.state in ("idle", "stopped")
         can_resume = status.reachable and status.state in ("idle", "stopped") and status.has_incomplete_orders
         can_stop = status.reachable and status.is_executing
+        can_advanced = status.reachable and status.state in ("idle", "stopped")
 
         self.run_btn.config(state=tk.NORMAL if can_run else tk.DISABLED)
         self.resume_btn.config(state=tk.NORMAL if can_resume else tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL if can_stop else tk.DISABLED)
+        self.advanced_btn.config(state=tk.NORMAL if can_advanced else tk.DISABLED)
 
     def _on_run_click(self):
         """Handles Run button click."""
@@ -421,9 +493,271 @@ class InstancePanel(ttk.Frame):
         """Handles Stop button click."""
         self.on_stop(self.instance)
 
+    def _on_advanced_click(self):
+        """Handles Advanced button click."""
+        self.on_advanced_run(self.instance)
+
     def _on_remove_click(self):
         """Handles Remove button click."""
         self.on_remove(self.instance)
+
+
+# =============================================================================
+# Advanced Run Dialog
+# =============================================================================
+
+@dataclass
+class AdvancedRunConfig:
+    """Configuration for advanced run modes."""
+    mode: str = "timer"  # "timer" or "schedule"
+    timer_hours: int = 0
+    timer_minutes: int = 30
+    schedule_start_hour: int = 8
+    schedule_start_minute: int = 0
+    schedule_end_hour: int = 22
+    schedule_end_minute: int = 0
+
+
+class AdvancedRunDialog(tk.Toplevel):
+    """Dialog for configuring advanced run options (timer or schedule mode)."""
+
+    def __init__(self, parent, instance_name: str, has_incomplete_orders: bool = False):
+        super().__init__(parent)
+        self.title(f"Advanced Run - {instance_name}")
+        self.geometry("400x380")
+        self.resizable(False, False)
+        self.configure(bg="#2d2d30")
+
+        self.result: Optional[AdvancedRunConfig] = None
+        self.has_incomplete_orders = has_incomplete_orders
+
+        # Mode variable
+        self.mode_var = tk.StringVar(value="timer")
+
+        self._create_widgets()
+
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        """Creates dialog widgets."""
+        # Mode selection
+        mode_frame = tk.Frame(self, bg="#2d2d30")
+        mode_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
+
+        tk.Label(
+            mode_frame, text="Run Mode:", font=("Segoe UI", 10, "bold"),
+            fg="white", bg="#2d2d30"
+        ).pack(side=tk.LEFT)
+
+        tk.Radiobutton(
+            mode_frame, text="Timer", variable=self.mode_var, value="timer",
+            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
+            activebackground="#2d2d30", activeforeground="white",
+            command=self._on_mode_change
+        ).pack(side=tk.LEFT, padx=10)
+
+        tk.Radiobutton(
+            mode_frame, text="Schedule", variable=self.mode_var, value="schedule",
+            font=("Segoe UI", 10), fg="white", bg="#2d2d30", selectcolor="#3d3d40",
+            activebackground="#2d2d30", activeforeground="white",
+            command=self._on_mode_change
+        ).pack(side=tk.LEFT)
+
+        # Timer mode frame
+        self.timer_frame = tk.LabelFrame(
+            self, text="Timer Mode", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", padx=15, pady=10
+        )
+        self.timer_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        tk.Label(
+            self.timer_frame, text="Run for:", font=("Segoe UI", 10),
+            fg="#cccccc", bg="#2d2d30"
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        timer_input_frame = tk.Frame(self.timer_frame, bg="#2d2d30")
+        timer_input_frame.grid(row=0, column=1, sticky="w", pady=5)
+
+        self.timer_hours_var = tk.StringVar(value="0")
+        self.timer_hours_entry = tk.Entry(
+            timer_input_frame, textvariable=self.timer_hours_var,
+            font=("Segoe UI", 10), width=4
+        )
+        self.timer_hours_entry.pack(side=tk.LEFT)
+        tk.Label(timer_input_frame, text="hours", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+
+        self.timer_minutes_var = tk.StringVar(value="30")
+        self.timer_minutes_entry = tk.Entry(
+            timer_input_frame, textvariable=self.timer_minutes_var,
+            font=("Segoe UI", 10), width=4
+        )
+        self.timer_minutes_entry.pack(side=tk.LEFT)
+        tk.Label(timer_input_frame, text="minutes", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+
+        tk.Label(
+            self.timer_frame,
+            text="After the timer expires, StopGently will be called.",
+            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
+        # Schedule mode frame
+        self.schedule_frame = tk.LabelFrame(
+            self, text="Schedule Mode", font=("Segoe UI", 10),
+            fg="white", bg="#2d2d30", padx=15, pady=10
+        )
+        self.schedule_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        # Start time
+        tk.Label(
+            self.schedule_frame, text="Start at:", font=("Segoe UI", 10),
+            fg="#cccccc", bg="#2d2d30"
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        start_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
+        start_frame.grid(row=0, column=1, sticky="w", pady=5)
+
+        self.start_hour_var = tk.StringVar(value="08")
+        self.start_hour_entry = tk.Entry(
+            start_frame, textvariable=self.start_hour_var,
+            font=("Segoe UI", 10), width=3
+        )
+        self.start_hour_entry.pack(side=tk.LEFT)
+        tk.Label(start_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
+
+        self.start_minute_var = tk.StringVar(value="00")
+        self.start_minute_entry = tk.Entry(
+            start_frame, textvariable=self.start_minute_var,
+            font=("Segoe UI", 10), width=3
+        )
+        self.start_minute_entry.pack(side=tk.LEFT)
+        tk.Label(start_frame, text="(local time)", fg="#888888", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+
+        # End time
+        tk.Label(
+            self.schedule_frame, text="Stop at:", font=("Segoe UI", 10),
+            fg="#cccccc", bg="#2d2d30"
+        ).grid(row=1, column=0, sticky="w", pady=5)
+
+        end_frame = tk.Frame(self.schedule_frame, bg="#2d2d30")
+        end_frame.grid(row=1, column=1, sticky="w", pady=5)
+
+        self.end_hour_var = tk.StringVar(value="22")
+        self.end_hour_entry = tk.Entry(
+            end_frame, textvariable=self.end_hour_var,
+            font=("Segoe UI", 10), width=3
+        )
+        self.end_hour_entry.pack(side=tk.LEFT)
+        tk.Label(end_frame, text=":", fg="#cccccc", bg="#2d2d30").pack(side=tk.LEFT)
+
+        self.end_minute_var = tk.StringVar(value="00")
+        self.end_minute_entry = tk.Entry(
+            end_frame, textvariable=self.end_minute_var,
+            font=("Segoe UI", 10), width=3
+        )
+        self.end_minute_entry.pack(side=tk.LEFT)
+        tk.Label(end_frame, text="(local time)", fg="#888888", bg="#2d2d30").pack(side=tk.LEFT, padx=5)
+
+        tk.Label(
+            self.schedule_frame,
+            text="Runs daily: starts at start time, stops at end time.\nResumes automatically the next day.",
+            font=("Segoe UI", 9), fg="#888888", bg="#2d2d30"
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
+        # Resume option for schedule mode
+        self.resume_var = tk.BooleanVar(value=self.has_incomplete_orders)
+        self.resume_check = tk.Checkbutton(
+            self.schedule_frame, text="Resume incomplete orders (if available)",
+            variable=self.resume_var, font=("Segoe UI", 9),
+            fg="#cccccc", bg="#2d2d30", selectcolor="#3d3d40",
+            activebackground="#2d2d30", activeforeground="white"
+        )
+        self.resume_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
+        # Buttons
+        btn_frame = tk.Frame(self, bg="#2d2d30")
+        btn_frame.pack(fill=tk.X, padx=20, pady=20)
+
+        tk.Button(
+            btn_frame, text="Cancel", font=("Segoe UI", 10),
+            bg="#666666", fg="white", relief=tk.FLAT, width=10,
+            command=self.destroy
+        ).pack(side=tk.RIGHT, padx=5)
+
+        tk.Button(
+            btn_frame, text="Start", font=("Segoe UI", 10, "bold"),
+            bg="#2ecc71", fg="white", relief=tk.FLAT, width=10,
+            command=self._on_start
+        ).pack(side=tk.RIGHT, padx=5)
+
+        # Initialize visibility
+        self._on_mode_change()
+
+    def _on_mode_change(self):
+        """Updates frame visibility based on selected mode."""
+        if self.mode_var.get() == "timer":
+            self.timer_frame.config(fg="white")
+            self.schedule_frame.config(fg="#666666")
+            for child in self.timer_frame.winfo_children():
+                if isinstance(child, tk.Entry):
+                    child.config(state=tk.NORMAL)
+            for child in self.schedule_frame.winfo_children():
+                if isinstance(child, tk.Entry):
+                    child.config(state=tk.DISABLED)
+            self.resume_check.config(state=tk.DISABLED)
+        else:
+            self.timer_frame.config(fg="#666666")
+            self.schedule_frame.config(fg="white")
+            for child in self.timer_frame.winfo_children():
+                if isinstance(child, tk.Entry):
+                    child.config(state=tk.DISABLED)
+            for child in self.schedule_frame.winfo_children():
+                if isinstance(child, tk.Entry):
+                    child.config(state=tk.NORMAL)
+            self.resume_check.config(state=tk.NORMAL)
+
+    def _on_start(self):
+        """Validates and returns result."""
+        config = AdvancedRunConfig()
+        config.mode = self.mode_var.get()
+
+        try:
+            if config.mode == "timer":
+                config.timer_hours = int(self.timer_hours_var.get())
+                config.timer_minutes = int(self.timer_minutes_var.get())
+                if config.timer_hours < 0 or config.timer_minutes < 0:
+                    raise ValueError("Time cannot be negative")
+                if config.timer_hours == 0 and config.timer_minutes == 0:
+                    raise ValueError("Timer must be at least 1 minute")
+            else:
+                config.schedule_start_hour = int(self.start_hour_var.get())
+                config.schedule_start_minute = int(self.start_minute_var.get())
+                config.schedule_end_hour = int(self.end_hour_var.get())
+                config.schedule_end_minute = int(self.end_minute_var.get())
+
+                # Validate ranges
+                if not (0 <= config.schedule_start_hour <= 23):
+                    raise ValueError("Start hour must be 0-23")
+                if not (0 <= config.schedule_start_minute <= 59):
+                    raise ValueError("Start minute must be 0-59")
+                if not (0 <= config.schedule_end_hour <= 23):
+                    raise ValueError("End hour must be 0-23")
+                if not (0 <= config.schedule_end_minute <= 59):
+                    raise ValueError("End minute must be 0-59")
+
+        except ValueError as e:
+            messagebox.showerror("Invalid Input", str(e))
+            return
+
+        self.result = config
+        self.destroy()
 
 
 # =============================================================================
@@ -447,6 +781,11 @@ class WranglerMasterApp:
 
         # Default JSON path for run commands
         self.default_json_path = ""
+
+        # Advanced run tracking
+        # key = "host:port", value = dict with schedule info
+        self.active_timers: Dict[str, dict] = {}  # {key: {"end_time": datetime, "stopped": False}}
+        self.active_schedules: Dict[str, dict] = {}  # {key: {"config": AdvancedRunConfig, "last_action": str}}
 
         # Create UI
         self._create_menu()
@@ -665,6 +1004,7 @@ class WranglerMasterApp:
                 on_run=self._on_panel_run,
                 on_stop=self._on_panel_stop,
                 on_resume=self._on_panel_resume,
+                on_advanced_run=self._on_panel_advanced_run,
                 on_remove=self._on_panel_remove
             )
 
@@ -690,6 +1030,9 @@ class WranglerMasterApp:
         def poll():
             while self.polling_active:
                 self._refresh_all_async()
+                # Check timers and schedules every poll cycle
+                self._check_timers()
+                self._check_schedules()
                 time.sleep(POLL_INTERVAL_MS / 1000)
 
         thread = threading.Thread(target=poll, daemon=True)
@@ -803,10 +1146,200 @@ class WranglerMasterApp:
         thread = threading.Thread(target=do_resume, daemon=True)
         thread.start()
 
+    def _on_panel_advanced_run(self, instance: WranglerInstance):
+        """Handles advanced run button click from a panel."""
+        # Get current status to check for incomplete orders
+        key = f"{instance.host}:{instance.port}"
+        panel = self.panels.get(key)
+        has_incomplete = panel.status.has_incomplete_orders if panel else False
+
+        # Show dialog
+        dialog = AdvancedRunDialog(self.root, instance.name, has_incomplete)
+        self.root.wait_window(dialog)
+
+        if dialog.result is None:
+            return
+
+        config = dialog.result
+
+        # Check for default JSON path for non-resume runs
+        if not self.default_json_path:
+            path = filedialog.askopenfilename(
+                title="Select JSON File to Run",
+                filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
+            )
+            if not path:
+                return
+            self.default_json_path = path
+            self._save_config()
+
+        if config.mode == "timer":
+            # Timer mode: start now, stop after duration
+            self._start_timer_mode(instance, config)
+        else:
+            # Schedule mode: manage based on current time
+            self._start_schedule_mode(instance, config)
+
+    def _start_timer_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
+        """Starts timer mode for an instance."""
+        key = f"{instance.host}:{instance.port}"
+        duration_seconds = config.timer_hours * 3600 + config.timer_minutes * 60
+        end_time = datetime.now() + timedelta(seconds=duration_seconds)
+
+        self.active_timers[key] = {
+            "end_time": end_time,
+            "stopped": False,
+            "instance": instance
+        }
+
+        self._set_status(f"{instance.name}: Timer started ({config.timer_hours}h {config.timer_minutes}m)")
+
+        # Start the order now
+        def do_run():
+            success, message = WranglerClient.run_order(instance, json_path=self.default_json_path)
+            self.root.after(0, lambda: self._set_status(
+                f"{instance.name}: Started (timer mode)" if success else f"{instance.name} failed: {message}"
+            ))
+            time.sleep(1)
+            status = WranglerClient.get_status(instance)
+            self.root.after(0, lambda: self._update_panel(instance, status))
+
+        thread = threading.Thread(target=do_run, daemon=True)
+        thread.start()
+
+    def _start_schedule_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
+        """Starts schedule mode for an instance."""
+        key = f"{instance.host}:{instance.port}"
+
+        self.active_schedules[key] = {
+            "config": config,
+            "instance": instance,
+            "last_action": None  # "started" or "stopped"
+        }
+
+        self._set_status(
+            f"{instance.name}: Schedule activated "
+            f"({config.schedule_start_hour:02d}:{config.schedule_start_minute:02d} - "
+            f"{config.schedule_end_hour:02d}:{config.schedule_end_minute:02d})"
+        )
+
+        # Check if we should start immediately based on current time
+        self._check_schedule_for_instance(key)
+
+    def _check_timers(self):
+        """Checks all active timers and stops instances that have expired."""
+        now = datetime.now()
+        keys_to_remove = []
+
+        for key, timer_data in self.active_timers.items():
+            if timer_data["stopped"]:
+                continue
+
+            if now >= timer_data["end_time"]:
+                # Timer expired, stop the instance
+                instance = timer_data["instance"]
+                timer_data["stopped"] = True
+                keys_to_remove.append(key)
+
+                def do_stop(inst=instance):
+                    success, _ = WranglerClient.stop_gently(inst)
+                    self.root.after(0, lambda: self._set_status(
+                        f"{inst.name}: Timer expired, stopping..."
+                    ))
+                    time.sleep(2)
+                    status = WranglerClient.get_status(inst)
+                    self.root.after(0, lambda: self._update_panel(inst, status))
+
+                threading.Thread(target=do_stop, daemon=True).start()
+
+        # Clean up expired timers
+        for key in keys_to_remove:
+            del self.active_timers[key]
+
+    def _check_schedules(self):
+        """Checks all active schedules and starts/stops instances as needed."""
+        now = datetime.now()
+        current_minutes = now.hour * 60 + now.minute
+
+        for key, schedule_data in self.active_schedules.items():
+            self._check_schedule_for_instance(key)
+
+    def _check_schedule_for_instance(self, key: str):
+        """Checks and manages schedule for a single instance."""
+        if key not in self.active_schedules:
+            return
+
+        schedule_data = self.active_schedules[key]
+        config = schedule_data["config"]
+        instance = schedule_data["instance"]
+        last_action = schedule_data["last_action"]
+
+        now = datetime.now()
+        current_minutes = now.hour * 60 + now.minute
+        start_minutes = config.schedule_start_hour * 60 + config.schedule_start_minute
+        end_minutes = config.schedule_end_hour * 60 + config.schedule_end_minute
+
+        # Determine if we're in the active window
+        if start_minutes <= end_minutes:
+            # Normal case: e.g., 08:00 - 22:00
+            in_window = start_minutes <= current_minutes < end_minutes
+        else:
+            # Overnight case: e.g., 22:00 - 06:00
+            in_window = current_minutes >= start_minutes or current_minutes < end_minutes
+
+        # Get current status
+        status = WranglerClient.get_status(instance)
+
+        if in_window:
+            # Should be running
+            if last_action != "started" and not status.is_executing:
+                # Start or resume
+                schedule_data["last_action"] = "started"
+
+                def do_start(inst=instance, has_incomplete=status.has_incomplete_orders):
+                    if has_incomplete:
+                        success, message = WranglerClient.resume_orders(inst)
+                        action = "Resumed"
+                    else:
+                        success, message = WranglerClient.run_order(inst, json_path=self.default_json_path)
+                        action = "Started"
+
+                    self.root.after(0, lambda: self._set_status(
+                        f"{inst.name}: {action} (schedule)" if success else f"{inst.name} failed: {message}"
+                    ))
+                    time.sleep(1)
+                    st = WranglerClient.get_status(inst)
+                    self.root.after(0, lambda: self._update_panel(inst, st))
+
+                threading.Thread(target=do_start, daemon=True).start()
+        else:
+            # Should be stopped
+            if last_action != "stopped" and status.is_executing:
+                # Stop
+                schedule_data["last_action"] = "stopped"
+
+                def do_stop(inst=instance):
+                    success, _ = WranglerClient.stop_gently(inst)
+                    self.root.after(0, lambda: self._set_status(
+                        f"{inst.name}: Stopped (schedule)"
+                    ))
+                    time.sleep(2)
+                    st = WranglerClient.get_status(inst)
+                    self.root.after(0, lambda: self._update_panel(inst, st))
+
+                threading.Thread(target=do_stop, daemon=True).start()
+
     def _on_panel_remove(self, instance: WranglerInstance):
         """Handles remove button click from a panel."""
         if messagebox.askyesno("Remove Instance",
                                f"Remove '{instance.name}' from the list?"):
+            # Clean up any active timers/schedules for this instance
+            key = f"{instance.host}:{instance.port}"
+            if key in self.active_timers:
+                del self.active_timers[key]
+            if key in self.active_schedules:
+                del self.active_schedules[key]
+
             self.instances.remove(instance)
             self._refresh_panels()
             self._save_config()

@@ -45,6 +45,7 @@ namespace TheWrangler
         private readonly LisbethApi _lisbethApi;
         private readonly LevelingController _levelingController;
         private readonly ConcurrentQueue<DebugCommand> _debugCommandQueue = new ConcurrentQueue<DebugCommand>();
+        private DateTime? _executionStartTime;
 
         #endregion
 
@@ -108,6 +109,26 @@ namespace TheWrangler
         /// Returns true if there are pending debug commands.
         /// </summary>
         public bool HasPendingDebugCommand => !_debugCommandQueue.IsEmpty;
+
+        /// <summary>
+        /// Gets the execution start time (null if not executing).
+        /// </summary>
+        public DateTime? ExecutionStartTime => _executionStartTime;
+
+        /// <summary>
+        /// Gets the current execution runtime in seconds (0 if not executing).
+        /// </summary>
+        public int ExecutionRuntimeSeconds
+        {
+            get
+            {
+                if (_executionStartTime.HasValue && IsExecuting)
+                {
+                    return (int)(DateTime.Now - _executionStartTime.Value).TotalSeconds;
+                }
+                return 0;
+            }
+        }
 
         #endregion
 
@@ -279,6 +300,7 @@ namespace TheWrangler
             // Clear pending and mark as executing
             PendingOrderJson = null;
             IsExecuting = true;
+            _executionStartTime = DateTime.Now;
 
             OnStatusChanged("Running orders...");
             OnLogMessage("Executing Lisbeth orders...");
@@ -292,6 +314,7 @@ namespace TheWrangler
         public void OnOrderExecutionComplete(bool success)
         {
             IsExecuting = false;
+            _executionStartTime = null;
             OnStatusChanged(success ? "Completed" : "Did not complete");
             OnLogMessage(success ? "Orders completed successfully!" : "Orders did not complete.");
             OnOrderCompleted(success);
@@ -303,6 +326,7 @@ namespace TheWrangler
         public void OnOrderExecutionError(string error)
         {
             IsExecuting = false;
+            _executionStartTime = null;
             OnStatusChanged("Error");
             OnLogMessage($"Error: {error}");
             OnOrderCompleted(false);
@@ -413,6 +437,7 @@ namespace TheWrangler
 
             PendingOrderJson = null;
             IsExecuting = false;
+            _executionStartTime = null;
             OnStatusChanged("Bot stopped");
             OnOrderCompleted(false);
         }
