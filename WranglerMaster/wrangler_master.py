@@ -670,21 +670,15 @@ class AdvancedRunDialog(tk.Toplevel):
         resume_frame = tk.Frame(self, bg="#2d2d30")
         resume_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
 
-        self.resume_var = tk.BooleanVar(value=self.config.use_resume if self.has_incomplete_orders else False)
+        # Always allow the checkbox to be set (as a preference for future runs)
+        self.resume_var = tk.BooleanVar(value=self.config.use_resume)
         self.resume_check = tk.Checkbutton(
             resume_frame, text="Resume incomplete orders (instead of starting new)",
             variable=self.resume_var, font=("Segoe UI", 10),
             fg="#cccccc", bg="#2d2d30", selectcolor="#3d3d40",
-            activebackground="#2d2d30", activeforeground="white",
-            state=tk.NORMAL if self.has_incomplete_orders else tk.DISABLED
+            activebackground="#2d2d30", activeforeground="white"
         )
         self.resume_check.pack(side=tk.LEFT)
-
-        if not self.has_incomplete_orders:
-            tk.Label(
-                resume_frame, text="(no incomplete orders)",
-                font=("Segoe UI", 9), fg="#666666", bg="#2d2d30"
-            ).pack(side=tk.LEFT, padx=5)
 
         # None mode description
         self.none_frame = tk.LabelFrame(
@@ -851,7 +845,8 @@ class AdvancedRunDialog(tk.Toplevel):
         """Validates and returns result."""
         config = AdvancedRunConfig()
         config.mode = self.mode_var.get()
-        config.use_resume = self.resume_var.get() if self.has_incomplete_orders else False
+        # Always save the user's preference for resume - it will be used when incomplete orders exist
+        config.use_resume = self.resume_var.get()
 
         try:
             # Always save timer values even if not in timer mode (for persistence)
