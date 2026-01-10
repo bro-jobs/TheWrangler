@@ -609,11 +609,12 @@ class AdvancedRunDialog(tk.Toplevel):
                  existing_config: Optional[AdvancedRunConfig] = None):
         super().__init__(parent)
         self.title(f"Advanced Run - {instance_name}")
-        self.geometry("400x450")
+        self.geometry("450x450")
         self.resizable(False, False)
         self.configure(bg="#2d2d30")
 
         self.result: Optional[AdvancedRunConfig] = None
+        self.save_only: bool = False  # True if user clicked Save instead of Start
         self.has_incomplete_orders = has_incomplete_orders
 
         # Load existing config or use defaults
@@ -811,6 +812,12 @@ class AdvancedRunDialog(tk.Toplevel):
             command=self._on_start
         ).pack(side=tk.RIGHT, padx=5)
 
+        tk.Button(
+            btn_frame, text="Save", font=("Segoe UI", 10),
+            bg="#3498db", fg="white", relief=tk.FLAT, width=10,
+            command=self._on_save
+        ).pack(side=tk.RIGHT, padx=5)
+
         # Initialize visibility
         self._on_mode_change()
 
@@ -882,6 +889,51 @@ class AdvancedRunDialog(tk.Toplevel):
 
         self.result = config
         self.destroy()
+
+    def _on_save(self):
+        """Validates and saves config without starting a run."""
+        config = self._build_and_validate_config()
+        if config is None:
+            return
+
+        self.save_only = True
+        self.result = config
+        self.destroy()
+
+    def _build_and_validate_config(self) -> Optional[AdvancedRunConfig]:
+        """Builds and validates configuration from form values. Returns None on error."""
+        config = AdvancedRunConfig()
+        config.mode = self.mode_var.get()
+        config.use_resume = self.resume_var.get()
+
+        try:
+            config.timer_hours = int(self.timer_hours_var.get())
+            config.timer_minutes = int(self.timer_minutes_var.get())
+            config.schedule_start_hour = int(self.start_hour_var.get())
+            config.schedule_start_minute = int(self.start_minute_var.get())
+            config.schedule_end_hour = int(self.end_hour_var.get())
+            config.schedule_end_minute = int(self.end_minute_var.get())
+
+            if config.mode == "timer":
+                if config.timer_hours < 0 or config.timer_minutes < 0:
+                    raise ValueError("Time cannot be negative")
+                if config.timer_hours == 0 and config.timer_minutes == 0:
+                    raise ValueError("Timer must be at least 1 minute")
+            elif config.mode == "schedule":
+                if not (0 <= config.schedule_start_hour <= 23):
+                    raise ValueError("Start hour must be 0-23")
+                if not (0 <= config.schedule_start_minute <= 59):
+                    raise ValueError("Start minute must be 0-59")
+                if not (0 <= config.schedule_end_hour <= 23):
+                    raise ValueError("End hour must be 0-23")
+                if not (0 <= config.schedule_end_minute <= 59):
+                    raise ValueError("End minute must be 0-59")
+
+        except ValueError as e:
+            messagebox.showerror("Invalid Input", str(e))
+            return None
+
+        return config
 
 
 # =============================================================================
@@ -1293,6 +1345,11 @@ class WranglerMasterApp:
         # Save the config to the instance for persistence
         instance.set_advanced_config(config)
         self._save_config()
+
+        # If user clicked Save (not Start), just save and return without running
+        if dialog.save_only:
+            self._set_status(f"{instance.name}: Configuration saved")
+            return
 
         # Check for default JSON path for non-resume runs
         if not config.use_resume and not self.default_json_path:

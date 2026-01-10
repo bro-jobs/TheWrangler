@@ -35,3 +35,4 @@ WranglerMaster/WranglerMaster.spec
 WranglerMaster/WranglerMaster.spec
 WranglerMaster/WranglerMaster.spec
 *.spec
+__pycache__/
