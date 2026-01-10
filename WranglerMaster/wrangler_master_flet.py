@@ -308,19 +308,19 @@ class InstancePanel(ft.Container):
 
         # Buttons
         self.run_btn = ft.ElevatedButton(
-            text="Run",
+            "Run",
             style=btn_style(Colors.BLURPLE),
             on_click=lambda _: self._on_run(self.instance),
         )
 
         self.resume_btn = ft.ElevatedButton(
-            text="Resume",
+            "Resume",
             style=btn_style(Colors.BLURPLE),
             on_click=lambda _: self._on_resume(self.instance),
         )
 
         self.stop_btn = ft.ElevatedButton(
-            text="Stop",
+            "Stop",
             style=btn_style(Colors.BG_LIGHTER),
             on_click=lambda _: self._on_stop(self.instance),
         )
@@ -582,32 +582,32 @@ class WranglerMasterApp:
                         spacing=5,
                         controls=[
                             ft.ElevatedButton(
-                                text="Settings",
+                                "Settings",
                                 style=btn_style(Colors.BG_LIGHTER),
                                 on_click=self._show_settings,
                             ),
                             ft.ElevatedButton(
-                                text="Refresh",
+                                "Refresh",
                                 style=btn_style(Colors.BLURPLE),
                                 on_click=lambda _: self._refresh_all(),
                             ),
                             ft.ElevatedButton(
-                                text="+ Add",
+                                "+ Add",
                                 style=btn_style(Colors.BLURPLE),
                                 on_click=self._show_add_dialog,
                             ),
                             ft.ElevatedButton(
-                                text="Stop All",
+                                "Stop All",
                                 style=btn_style(Colors.BG_LIGHTER),
                                 on_click=lambda _: self._stop_all(),
                             ),
                             ft.ElevatedButton(
-                                text="Resume All",
+                                "Resume All",
                                 style=btn_style(Colors.BLURPLE),
                                 on_click=lambda _: self._resume_all(),
                             ),
                             ft.ElevatedButton(
-                                text="Start All",
+                                "Start All",
                                 style=btn_style(Colors.GREEN, Colors.TEXT_DARK),
                                 on_click=lambda _: self._start_all(),
                             ),
@@ -914,7 +914,7 @@ class WranglerMasterApp:
             actions=[
                 ft.TextButton("Cancel", on_click=close_dlg),
                 ft.ElevatedButton(
-                    text="Add",
+                    "Add",
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=0),
                         bgcolor=Colors.BLURPLE,
@@ -988,7 +988,7 @@ class WranglerMasterApp:
                     ft.Row([
                         ft.Container(expand=True, content=bg_field),
                         ft.ElevatedButton(
-                            text="Browse",
+                            "Browse",
                             style=ft.ButtonStyle(
                                 shape=ft.RoundedRectangleBorder(radius=0),
                                 bgcolor=Colors.BG_LIGHTER,
@@ -1005,7 +1005,7 @@ class WranglerMasterApp:
             actions=[
                 ft.TextButton("Cancel", on_click=close_dlg),
                 ft.ElevatedButton(
-                    text="Save",
+                    "Save",
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=0),
                         bgcolor=Colors.BLURPLE,
