@@ -382,30 +382,32 @@ namespace TheWrangler
 
         /// <summary>
         /// Returns true if there are incomplete orders that can be resumed.
-        /// Uses lazy initialization - if API isn't ready, tries to initialize first.
+        /// Checks both Lisbeth API and resume file, since Lisbeth doesn't load
+        /// incomplete orders into memory until it's started.
         /// </summary>
         public bool HasIncompleteOrders()
         {
-            // Lazy initialization: If API isn't initialized yet, try again
-            // This handles the case where WranglerController is constructed before
-            // Lisbeth is fully loaded in BotManager.Bots
-            if (!_lisbethApi.IsInitialized)
+            // First check if API reports incomplete orders
+            if (_lisbethApi.IsInitialized || _lisbethApi.Initialize())
             {
-                Log("LisbethApi not initialized, attempting late initialization for HasIncompleteOrders...");
-                if (!_lisbethApi.Initialize())
+                if (_lisbethApi.HasIncompleteOrders())
                 {
-                    Log("Late initialization failed - Lisbeth may not be loaded yet.");
-                    return false;
+                    return true;
                 }
-                Log("Late initialization succeeded.");
             }
 
-            return _lisbethApi.HasIncompleteOrders();
+            // Fall back to checking the resume file directly
+            // This handles the case where Lisbeth hasn't loaded the file yet
+            var incomplete = GetIncompleteOrdersFromFile();
+            return !string.IsNullOrWhiteSpace(incomplete)
+                && incomplete != "{}"
+                && incomplete != "[]";
         }
 
         /// <summary>
         /// Gets the incomplete orders JSON string.
-        /// Uses lazy initialization - if API isn't ready, tries to initialize first.
+        /// First tries the Lisbeth API, then falls back to reading lisbeth-resume.json directly.
+        /// This is needed because Lisbeth doesn't load incomplete orders into memory until started.
         /// </summary>
         public string GetIncompleteOrders()
         {
@@ -414,11 +416,51 @@ namespace TheWrangler
             {
                 if (!_lisbethApi.Initialize())
                 {
-                    return "{}";
+                    // API not available, try reading file directly
+                    return GetIncompleteOrdersFromFile();
                 }
             }
 
-            return _lisbethApi.GetIncompleteOrders();
+            var orders = _lisbethApi.GetIncompleteOrders();
+
+            // If API returns empty, try reading from file
+            // Lisbeth doesn't load incomplete orders until it's started
+            if (string.IsNullOrWhiteSpace(orders) || orders == "{}" || orders == "[]")
+            {
+                return GetIncompleteOrdersFromFile();
+            }
+
+            return orders;
+        }
+
+        /// <summary>
+        /// Reads incomplete orders directly from lisbeth-resume.json.
+        /// Used as fallback when Lisbeth API returns empty (before Lisbeth is started).
+        /// </summary>
+        private string GetIncompleteOrdersFromFile()
+        {
+            try
+            {
+                var resumeFilePath = GetResumeFilePath();
+                if (string.IsNullOrEmpty(resumeFilePath) || !File.Exists(resumeFilePath))
+                {
+                    return "{}";
+                }
+
+                var content = File.ReadAllText(resumeFilePath);
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    return "{}";
+                }
+
+                Log($"Read incomplete orders from file: {resumeFilePath}");
+                return content;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error reading resume file: {ex.Message}");
+                return "{}";
+            }
         }
 
         /// <summary>
