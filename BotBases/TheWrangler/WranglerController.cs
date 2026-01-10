@@ -379,17 +379,42 @@ namespace TheWrangler
 
         /// <summary>
         /// Returns true if there are incomplete orders that can be resumed.
+        /// Uses lazy initialization - if API isn't ready, tries to initialize first.
         /// </summary>
         public bool HasIncompleteOrders()
         {
+            // Lazy initialization: If API isn't initialized yet, try again
+            // This handles the case where WranglerController is constructed before
+            // Lisbeth is fully loaded in BotManager.Bots
+            if (!_lisbethApi.IsInitialized)
+            {
+                Log("LisbethApi not initialized, attempting late initialization for HasIncompleteOrders...");
+                if (!_lisbethApi.Initialize())
+                {
+                    Log("Late initialization failed - Lisbeth may not be loaded yet.");
+                    return false;
+                }
+                Log("Late initialization succeeded.");
+            }
+
             return _lisbethApi.HasIncompleteOrders();
         }
 
         /// <summary>
         /// Gets the incomplete orders JSON string.
+        /// Uses lazy initialization - if API isn't ready, tries to initialize first.
         /// </summary>
         public string GetIncompleteOrders()
         {
+            // Lazy initialization: If API isn't initialized yet, try again
+            if (!_lisbethApi.IsInitialized)
+            {
+                if (!_lisbethApi.Initialize())
+                {
+                    return "{}";
+                }
+            }
+
             return _lisbethApi.GetIncompleteOrders();
         }
 
