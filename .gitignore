@@ -37,3 +37,21 @@ WranglerMaster/WranglerMaster.spec
 *.spec
 __pycache__/
 WranglerMaster/dist/app_settings.json
+WranglerMaster/build/Wrangler Master/Analysis-00.toc
+WranglerMaster/build/Wrangler Master/base_library.zip
+WranglerMaster/build/Wrangler Master/EXE-00.toc
+WranglerMaster/build/Wrangler Master/generated-66f32e7cee1adc40d52891a27c10fd3d01978bdfcae436d6590c16ef9bd8d412.ico
+WranglerMaster/build/Wrangler Master/localpycs/pyimod01_archive.pyc
+WranglerMaster/build/Wrangler Master/localpycs/pyimod02_importers.pyc
+WranglerMaster/build/Wrangler Master/localpycs/pyimod03_ctypes.pyc
+WranglerMaster/build/Wrangler Master/localpycs/pyimod04_pywin32.pyc
+WranglerMaster/build/Wrangler Master/localpycs/struct.pyc
+WranglerMaster/build/Wrangler Master/PKG-00.toc
+WranglerMaster/build/Wrangler Master/PYZ-00.pyz
+WranglerMaster/build/Wrangler Master/PYZ-00.toc
+WranglerMaster/build/Wrangler Master/warn-Wrangler Master.txt
+WranglerMaster/build/Wrangler Master/Wrangler Master.pkg
+WranglerMaster/build/Wrangler Master/xref-Wrangler Master.html
+WranglerMaster/dist/Wrangler Master.exe
+WranglerMaster/generated-66f32e7cee1adc40d52891a27c10fd3d01978bdfcae436d6590c16ef9bd8d412.ico
+WranglerMaster/icon.ico
