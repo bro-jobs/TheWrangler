@@ -353,31 +353,25 @@ namespace TheWrangler
         private async Task ExecuteResumeOrderAsync(string json)
         {
             Log("Resuming orders (filtering to primary only)...");
-            Log($"DEBUG: Input JSON length: {json?.Length ?? 0}");
-            Log($"DEBUG: Input JSON preview: {(json?.Length > 200 ? json.Substring(0, 200) + "..." : json)}");
 
             try
             {
                 // Check for empty/invalid JSON
                 if (string.IsNullOrWhiteSpace(json) || json == "{}" || json == "[]")
                 {
-                    Log("DEBUG: Input JSON is empty or invalid, nothing to resume.");
+                    Log("No orders to resume (empty JSON).");
                     _controller.OnOrderExecutionComplete(true);
                     return;
                 }
 
                 // Parse the incomplete orders JSON and filter to primary only
                 var orders = Newtonsoft.Json.Linq.JArray.Parse(json);
-                Log($"DEBUG: Parsed {orders.Count} orders from JSON");
-
                 var primaryOrders = new Newtonsoft.Json.Linq.JArray(
                     orders.Where(o => (bool?)o["IsPrimary"] == true)
                 );
 
                 int totalCount = orders.Count;
                 int primaryCount = primaryOrders.Count;
-
-                Log($"DEBUG: Found {primaryCount} primary orders out of {totalCount} total");
 
                 if (primaryCount == 0)
                 {
@@ -390,18 +384,12 @@ namespace TheWrangler
 
                 // Execute only the primary orders
                 string filteredJson = primaryOrders.ToString(Newtonsoft.Json.Formatting.None);
-                Log($"DEBUG: Filtered JSON length: {filteredJson.Length}");
-                Log($"DEBUG: Calling ExecuteOrdersAsync...");
-
                 bool result = await _controller.LisbethApi.ExecuteOrdersAsync(filteredJson, ignoreHome: false);
-
-                Log($"DEBUG: ExecuteOrdersAsync returned: {result}");
                 _controller.OnOrderExecutionComplete(result);
             }
             catch (Newtonsoft.Json.JsonException ex)
             {
                 Log($"Error parsing incomplete orders JSON: {ex.Message}");
-                Log($"DEBUG: JSON that failed to parse: {json}");
                 _controller.OnOrderExecutionError($"JSON parse error: {ex.Message}");
             }
             catch (Exception ex) when (ex.GetType().Name != "CoroutineStoppedException")

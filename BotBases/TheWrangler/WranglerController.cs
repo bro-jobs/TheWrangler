@@ -596,8 +596,6 @@ namespace TheWrangler
 
             // Use GetIncompleteOrders which checks both API and file
             var incompleteOrders = GetIncompleteOrders();
-            Log($"DEBUG: GetIncompleteOrders returned: {incompleteOrders?.Length ?? 0} chars");
-            Log($"DEBUG: Preview: {(incompleteOrders?.Length > 200 ? incompleteOrders.Substring(0, 200) + "..." : incompleteOrders)}");
 
             if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}" || incompleteOrders == "[]")
             {
@@ -613,7 +611,6 @@ namespace TheWrangler
             // Mark as resume so we use RequestRestart instead of ExecuteOrders
             PendingOrderJson = incompleteOrders;
             IsResumingOrder = true;
-            Log($"DEBUG: Queued {incompleteOrders.Length} chars for resume, IsResumingOrder={IsResumingOrder}");
 
             return true;
         }
