@@ -151,12 +151,22 @@ namespace TheWrangler
 
         /// <summary>
         /// Called when the bot stops running.
-        /// Reset controller state and notify UI.
+        /// Performs full cleanup of controller state, Lisbeth resources, and behavior tree.
         /// </summary>
         public override void Stop()
         {
-            Log("TheWrangler stopped.");
+            Log("TheWrangler stopping - beginning cleanup...");
+
+            // Reset startup stabilization flag for next start
+            _startupStabilized = false;
+
+            // Clear any pending async operations
+            _pendingGoHomeCallback = null;
+
+            // Full controller cleanup (resets state, stops Lisbeth)
             _controller.OnBotStopped();
+
+            Log("TheWrangler stopped.");
         }
 
         #endregion
@@ -272,9 +282,9 @@ namespace TheWrangler
             // Get order data (clears pending, sets executing)
             var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
 
-            // Retry once for CoroutineStoppedException - this can happen when
-            // the coroutine system is unstable (e.g., during startup) or when
-            // Lisbeth's internal state is corrupted from a previous forced stop
+            // Retry once for CoroutineStoppedException - but ONLY if bot is still running.
+            // If the bot was stopped externally, we must let the exception propagate
+            // so the coroutine system can properly dispose of the coroutine.
             const int maxRetries = 1;
             int attempt = 0;
 
@@ -306,6 +316,15 @@ namespace TheWrangler
                 }
                 catch (Exception ex) when (ex.GetType().Name == "CoroutineStoppedException" && attempt < maxRetries)
                 {
+                    // CRITICAL: Only retry if the bot is still running!
+                    // If the bot was stopped, we must let the exception propagate
+                    // so the coroutine system can properly clean up.
+                    if (!TreeRoot.IsRunning)
+                    {
+                        Log("Bot was stopped - letting CoroutineStoppedException propagate for proper cleanup.");
+                        throw;
+                    }
+
                     // This can happen when the coroutine system is unstable or
                     // Lisbeth's internal state is corrupted. Retry once.
                     Log($"CoroutineStoppedException on attempt {attempt + 1}, will retry...");
@@ -344,31 +363,25 @@ namespace TheWrangler
         private async Task ExecuteResumeOrderAsync(string json)
         {
             Log("Resuming orders (filtering to primary only)...");
-            Log($"DEBUG: Input JSON length: {json?.Length ?? 0}");
-            Log($"DEBUG: Input JSON preview: {(json?.Length > 200 ? json.Substring(0, 200) + "..." : json)}");
 
             try
             {
                 // Check for empty/invalid JSON
                 if (string.IsNullOrWhiteSpace(json) || json == "{}" || json == "[]")
                 {
-                    Log("DEBUG: Input JSON is empty or invalid, nothing to resume.");
+                    Log("No orders to resume (empty JSON).");
                     _controller.OnOrderExecutionComplete(true);
                     return;
                 }
 
                 // Parse the incomplete orders JSON and filter to primary only
                 var orders = Newtonsoft.Json.Linq.JArray.Parse(json);
-                Log($"DEBUG: Parsed {orders.Count} orders from JSON");
-
                 var primaryOrders = new Newtonsoft.Json.Linq.JArray(
                     orders.Where(o => (bool?)o["IsPrimary"] == true)
                 );
 
                 int totalCount = orders.Count;
                 int primaryCount = primaryOrders.Count;
-
-                Log($"DEBUG: Found {primaryCount} primary orders out of {totalCount} total");
 
                 if (primaryCount == 0)
                 {
@@ -381,18 +394,12 @@ namespace TheWrangler
 
                 // Execute only the primary orders
                 string filteredJson = primaryOrders.ToString(Newtonsoft.Json.Formatting.None);
-                Log($"DEBUG: Filtered JSON length: {filteredJson.Length}");
-                Log($"DEBUG: Calling ExecuteOrdersAsync...");
-
                 bool result = await _controller.LisbethApi.ExecuteOrdersAsync(filteredJson, ignoreHome: false);
-
-                Log($"DEBUG: ExecuteOrdersAsync returned: {result}");
                 _controller.OnOrderExecutionComplete(result);
             }
             catch (Newtonsoft.Json.JsonException ex)
             {
                 Log($"Error parsing incomplete orders JSON: {ex.Message}");
-                Log($"DEBUG: JSON that failed to parse: {json}");
                 _controller.OnOrderExecutionError($"JSON parse error: {ex.Message}");
             }
             catch (Exception ex) when (ex.GetType().Name != "CoroutineStoppedException")

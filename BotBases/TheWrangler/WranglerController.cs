@@ -596,8 +596,6 @@ namespace TheWrangler
 
             // Use GetIncompleteOrders which checks both API and file
             var incompleteOrders = GetIncompleteOrders();
-            Log($"DEBUG: GetIncompleteOrders returned: {incompleteOrders?.Length ?? 0} chars");
-            Log($"DEBUG: Preview: {(incompleteOrders?.Length > 200 ? incompleteOrders.Substring(0, 200) + "..." : incompleteOrders)}");
 
             if (string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}" || incompleteOrders == "[]")
             {
@@ -613,25 +611,48 @@ namespace TheWrangler
             // Mark as resume so we use RequestRestart instead of ExecuteOrders
             PendingOrderJson = incompleteOrders;
             IsResumingOrder = true;
-            Log($"DEBUG: Queued {incompleteOrders.Length} chars for resume, IsResumingOrder={IsResumingOrder}");
 
             return true;
         }
 
         /// <summary>
-        /// Called when the bot stops. Resets state and notifies UI.
-        /// Also calls Lisbeth's StopAction to clean up resources.
+        /// Called when the bot stops. Resets all state and cleans up Lisbeth resources.
+        /// This ensures a clean slate for the next bot start.
         /// </summary>
         public void OnBotStopped()
         {
-            // Clean up Lisbeth resources
-            _lisbethApi.Stop();
+            Log("Cleaning up on bot stop...");
 
+            // Reset all pending/executing state FIRST
+            // This prevents any callbacks from trying to process stale state
             PendingOrderJson = null;
+            IsResumingOrder = false;
             IsExecuting = false;
             _executionStartTime = null;
+
+            // Request Lisbeth to stop gently if it's doing something
+            // This signals Lisbeth to finish current action and stop
+            if (_lisbethApi.IsInitialized)
+            {
+                try
+                {
+                    _lisbethApi.RequestStopGently();
+                }
+                catch (Exception ex)
+                {
+                    Log($"Warning: Error requesting Lisbeth stop: {ex.Message}");
+                }
+            }
+
+            // Call Lisbeth's StopAction to clean up internal resources
+            // This resets _hasStarted so StartAction will be called on next run
+            _lisbethApi.Stop();
+
+            // Notify UI
             OnStatusChanged("Bot stopped");
             OnOrderCompleted(false);
+
+            Log("Cleanup complete.");
         }
 
         /// <summary>
