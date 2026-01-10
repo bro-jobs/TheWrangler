@@ -330,119 +330,50 @@ namespace TheWrangler
         }
 
         /// <summary>
-        /// Executes a resume order by ticking Lisbeth's behavior tree directly.
+        /// Executes a resume order by filtering to primary orders only.
         ///
-        /// RequestRestart only queues the resume - Lisbeth's behavior tree must be
-        /// actively ticked for the coroutine to process the dialog click and execute.
-        /// Since TheWrangler is the active bot (not Lisbeth), we manually tick
-        /// Lisbeth's Root behavior tree.
+        /// Incomplete orders can contain both primary orders (IsPrimary: true) and
+        /// suborders (IsPrimary: false). If we pass all of them to ExecuteOrders,
+        /// the suborders get treated as main orders and re-expanded, causing duplication.
+        ///
+        /// Solution: Filter to only include IsPrimary == true orders before executing.
         ///
         /// CoroutineStoppedException is NOT caught here - it propagates up to
         /// ExecuteOrderAsync for retry handling.
         /// </summary>
         private async Task ExecuteResumeOrderAsync(string json)
         {
-            Log("Resuming orders by ticking Lisbeth's behavior tree...");
+            Log("Resuming orders (filtering to primary only)...");
 
             try
             {
-                // Get Lisbeth's behavior tree Root
-                var lisbethRoot = _controller.LisbethApi.GetLisbethRoot();
-                if (lisbethRoot == null)
+                // Parse the incomplete orders JSON and filter to primary only
+                var orders = Newtonsoft.Json.Linq.JArray.Parse(json);
+                var primaryOrders = new Newtonsoft.Json.Linq.JArray(
+                    orders.Where(o => o["IsPrimary"]?.Value<bool>() == true)
+                );
+
+                int totalCount = orders.Count;
+                int primaryCount = primaryOrders.Count;
+
+                if (primaryCount == 0)
                 {
-                    Log("Error: Could not get Lisbeth's behavior tree.");
-                    _controller.OnOrderExecutionError("Could not get Lisbeth's behavior tree");
+                    Log($"No primary orders found in {totalCount} incomplete order(s). Nothing to resume.");
+                    _controller.OnOrderExecutionComplete(true);
                     return;
                 }
 
-                // Get the Start and Tick methods via reflection
-                var startMethod = lisbethRoot.GetType().GetMethod("Start");
-                var tickMethod = lisbethRoot.GetType().GetMethod("Tick");
-                if (tickMethod == null)
-                {
-                    Log("Error: Could not find Tick method on Lisbeth's behavior tree.");
-                    _controller.OnOrderExecutionError("Could not find Tick method");
-                    return;
-                }
+                Log($"Filtered {totalCount} incomplete orders to {primaryCount} primary order(s).");
 
-                // Initialize the dialog helper for auto-clicking the Expansion dialog
-                var dialogHelper = new ExpansionDialogHelper();
-                if (!dialogHelper.Initialize())
-                {
-                    Log("Warning: Could not initialize dialog helper. Manual dialog confirmation may be required.");
-                }
-
-                // Call RequestRestart to queue the resume (shows dialog)
-                _controller.LisbethApi.RequestRestart(json);
-
-                // Start Lisbeth's behavior tree
-                Log("Starting Lisbeth's behavior tree...");
-                startMethod?.Invoke(lisbethRoot, new object[] { null });
-
-                // Phase 1: Tick while waiting for dialog, click it when it appears
-                Log("Waiting for Expansion confirmation dialog...");
-                bool dialogClicked = false;
-                for (int i = 0; i < 60; i++) // 30 seconds max
-                {
-                    // Tick Lisbeth's tree
-                    tickMethod.Invoke(lisbethRoot, new object[] { null });
-
-                    // Check for dialog
-                    if (!dialogClicked && dialogHelper.HasExpansionDialog())
-                    {
-                        Log("Expansion dialog detected, clicking Yes...");
-                        int clicked = dialogHelper.TryClickAllExpansionDialogs();
-                        if (clicked > 0)
-                        {
-                            Log($"Successfully clicked Yes on {clicked} dialog(s).");
-                            dialogClicked = true;
-                        }
-                    }
-
-                    // Check if orders became active (dialog was processed)
-                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
-                    if (!string.IsNullOrWhiteSpace(activeOrders) && activeOrders != "{}" && activeOrders != "[]")
-                    {
-                        Log("Orders are now active!");
-                        break;
-                    }
-
-                    await Coroutine.Sleep(500);
-                }
-
-                // Phase 2: Keep ticking Lisbeth's tree until orders complete
-                Log("Ticking Lisbeth's behavior tree for order execution...");
-                int tickCount = 0;
-                while (true)
-                {
-                    // Tick Lisbeth's tree to let it process
-                    tickMethod.Invoke(lisbethRoot, new object[] { null });
-                    tickCount++;
-
-                    // Log progress periodically
-                    if (tickCount % 20 == 0)
-                    {
-                        Log($"Resume in progress... (tick {tickCount})");
-                    }
-
-                    // Check if orders are complete
-                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
-                    if (string.IsNullOrWhiteSpace(activeOrders) || activeOrders == "{}" || activeOrders == "[]")
-                    {
-                        // No more active orders - check if incomplete orders remain
-                        var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
-                        bool success = string.IsNullOrWhiteSpace(incompleteOrders)
-                            || incompleteOrders == "{}"
-                            || incompleteOrders == "[]";
-
-                        Log(success ? "Resume completed successfully!" : "Resume completed with incomplete orders.");
-                        _controller.OnOrderExecutionComplete(success);
-                        return;
-                    }
-
-                    // Yield to let TheWrangler's coroutine system breathe
-                    await Coroutine.Yield();
-                }
+                // Execute only the primary orders
+                string filteredJson = primaryOrders.ToString(Newtonsoft.Json.Formatting.None);
+                bool result = await _controller.LisbethApi.ExecuteOrdersAsync(filteredJson, ignoreHome: false);
+                _controller.OnOrderExecutionComplete(result);
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                Log($"Error parsing incomplete orders JSON: {ex.Message}");
+                _controller.OnOrderExecutionError($"JSON parse error: {ex.Message}");
             }
             catch (Exception ex) when (ex.GetType().Name != "CoroutineStoppedException")
             {
