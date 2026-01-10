@@ -256,7 +256,15 @@ namespace TheWrangler
             Log("Executing pending order...");
 
             // Get order data (clears pending, sets executing)
-            var (json, ignoreHome) = _controller.GetPendingOrderData();
+            var (json, ignoreHome, isResume) = _controller.GetPendingOrderData();
+
+            // For resume orders, use RequestRestart instead of ExecuteOrders
+            // RequestRestart doesn't re-expand suborders, which prevents duplication
+            if (isResume)
+            {
+                await ExecuteResumeOrderAsync(json);
+                return;
+            }
 
             // Retry once for CoroutineStoppedException - this can happen when
             // Lisbeth's internal state is corrupted from a previous forced stop
@@ -303,6 +311,54 @@ namespace TheWrangler
                     _controller.OnOrderExecutionError(ex.Message);
                     return; // Exit on non-retryable error
                 }
+            }
+        }
+
+        /// <summary>
+        /// Executes a resume order using RequestRestart.
+        /// RequestRestart is fire-and-forget, so we poll for completion.
+        /// </summary>
+        private async Task ExecuteResumeOrderAsync(string json)
+        {
+            Log("Resuming orders using RequestRestart...");
+
+            try
+            {
+                // RequestRestart doesn't re-expand suborders - it uses them as-is
+                _controller.LisbethApi.RequestRestart(json);
+
+                // Poll for completion - check if there are still active orders
+                // We'll poll every 2 seconds for up to 8 hours (max reasonable runtime)
+                const int pollIntervalMs = 2000;
+                const int maxPolls = 14400; // 8 hours
+
+                for (int i = 0; i < maxPolls; i++)
+                {
+                    await Coroutine.Sleep(pollIntervalMs);
+
+                    // Check if there are still active orders
+                    var activeOrders = _controller.LisbethApi.GetActiveOrders();
+                    if (string.IsNullOrWhiteSpace(activeOrders) || activeOrders == "{}" || activeOrders == "[]")
+                    {
+                        // No more active orders - check if incomplete
+                        var incompleteOrders = _controller.LisbethApi.GetIncompleteOrders();
+                        bool success = string.IsNullOrWhiteSpace(incompleteOrders) || incompleteOrders == "{}";
+
+                        Log(success ? "Resume completed successfully!" : "Resume completed with incomplete orders.");
+                        _controller.OnOrderExecutionComplete(success);
+                        return;
+                    }
+                }
+
+                // Timeout after max polls
+                Log("Resume timed out after maximum duration.");
+                _controller.OnOrderExecutionComplete(false);
+            }
+            catch (Exception ex)
+            {
+                Log($"Error in resume: {ex.Message}");
+                Logging.WriteException(ex);
+                _controller.OnOrderExecutionError(ex.Message);
             }
         }
 
