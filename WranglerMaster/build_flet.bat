@@ -10,11 +10,19 @@ set SCRIPT_NAME=wrangler_master_flet.py
 set APP_NAME=Wrangler Master
 set ICON_FILE=icon.ico
 
+REM Check for --clean flag to force recreate venv
+if "%1"=="--clean" (
+    echo Cleaning build environment...
+    if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%"
+)
+
+:CREATE_VENV
 REM Check if virtual environment exists, create if not
 if exist "%VENV_DIR%\Scripts\activate.bat" (
     echo Using existing build environment...
 ) else (
     echo Creating isolated build environment...
+    if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%"
     python -m venv %VENV_DIR%
     if errorlevel 1 (
         echo ERROR: Failed to create virtual environment.
@@ -28,6 +36,11 @@ REM Activate virtual environment
 echo Activating build environment...
 call %VENV_DIR%\Scripts\activate.bat
 
+REM Upgrade pip first to avoid issues
+echo.
+echo Upgrading pip...
+python -m pip install --upgrade pip --quiet
+
 REM Uninstall any conflicting packages first
 echo.
 echo Cleaning up any conflicting packages...
@@ -38,10 +51,11 @@ echo.
 echo Installing Flet 0.19.0 and dependencies...
 pip install flet==0.19.0 requests pyinstaller --quiet
 if errorlevel 1 (
-    echo ERROR: Failed to install dependencies.
+    echo.
+    echo Installation failed. Recreating build environment...
     call deactivate
-    pause
-    exit /b 1
+    rmdir /s /q "%VENV_DIR%"
+    goto CREATE_VENV
 )
 
 REM Build the application
@@ -69,5 +83,7 @@ echo Flet 0.19.0 benefits:
 echo  - Small executable size (~11MB compressed)
 echo  - Fast startup (near-instant)
 echo  - No runtime dependencies
+echo.
+echo TIP: Run "build_flet.bat --clean" to force recreate the build environment.
 echo.
 pause
