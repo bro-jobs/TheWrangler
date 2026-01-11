@@ -360,7 +360,6 @@ class InstancePanel(ft.UserControl):
         self.go_home_cb = ft.Checkbox(
             label="Go Home after session",
             value=self.instance.go_home_after_session,
-            label_style=ft.TextStyle(size=12, color=Colors.TEXT_MUTED),
             on_change=self._on_go_home_change,
         )
 
@@ -939,15 +938,21 @@ class WranglerMasterApp:
             try:
                 port = int(port_field.value.strip())
             except ValueError:
+                logger.error("Invalid port value")
                 return
 
+            # Close dialog first
+            dlg.open = False
+            self.page.update()
+
+            # Then add instance and rebuild
             instance = WranglerInstance(name=name, host=host, port=port)
             self.instances.append(instance)
             self._rebuild_panels()
             self._save_config()
             self._set_status(f"Added: {name}")
-            dlg.open = False
             self.page.update()
+            logger.debug(f"Instance added: {name}")
 
         dlg = ft.AlertDialog(
             modal=True,
