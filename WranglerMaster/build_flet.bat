@@ -1,19 +1,73 @@
 @echo off
-echo Building Wrangler Master (Flet Edition - v0.19.0)
+echo ============================================
+echo Building Wrangler Master (Flet 0.19.0)
+echo ============================================
 echo.
 
-REM Install/update dependencies (with specific Flet version)
-echo Installing dependencies...
-pip install flet==0.19.0 requests
+REM Set variables
+set VENV_DIR=.flet_build_env
+set SCRIPT_NAME=wrangler_master_flet.py
+set APP_NAME=Wrangler Master
+set ICON_FILE=icon.ico
 
-REM Build with Flet's built-in packaging
+REM Check if virtual environment exists, create if not
+if exist "%VENV_DIR%\Scripts\activate.bat" (
+    echo Using existing build environment...
+) else (
+    echo Creating isolated build environment...
+    python -m venv %VENV_DIR%
+    if errorlevel 1 (
+        echo ERROR: Failed to create virtual environment.
+        echo Make sure Python is installed and in your PATH.
+        pause
+        exit /b 1
+    )
+)
+
+REM Activate virtual environment
+echo Activating build environment...
+call %VENV_DIR%\Scripts\activate.bat
+
+REM Uninstall any conflicting packages first
 echo.
-echo Building with flet pack...
-flet pack wrangler_master_flet.py --name "Wrangler Master" --icon icon.ico
+echo Cleaning up any conflicting packages...
+pip uninstall flet flet-cli flet-core flet-desktop flet-runtime flet-web -y >nul 2>&1
+
+REM Install exact versions needed for Flet 0.19.0
+echo.
+echo Installing Flet 0.19.0 and dependencies...
+pip install flet==0.19.0 requests --quiet
+if errorlevel 1 (
+    echo ERROR: Failed to install dependencies.
+    call deactivate
+    pause
+    exit /b 1
+)
+
+REM Build the application
+echo.
+echo Building application...
+flet pack %SCRIPT_NAME% --name "%APP_NAME%" --icon %ICON_FILE%
+if errorlevel 1 (
+    echo ERROR: Build failed.
+    call deactivate
+    pause
+    exit /b 1
+)
+
+REM Deactivate virtual environment
+call deactivate
 
 echo.
-echo Build complete! Check the 'dist' folder for the executable.
+echo ============================================
+echo Build complete!
+echo ============================================
 echo.
-echo NOTE: Flet 0.19.0 produces much smaller executables (~11MB compressed)
-echo compared to newer versions (~140MB+).
+echo Output: dist\%APP_NAME%.exe
+echo.
+echo Flet 0.19.0 benefits:
+echo  - Small executable size (~11MB compressed)
+echo  - Fast startup (near-instant)
+echo  - No runtime dependencies
+echo.
 pause
