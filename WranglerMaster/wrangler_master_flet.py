@@ -28,8 +28,19 @@ from typing import Optional, List, Dict
 
 import flet as ft
 
-# Setup debug logging
-LOG_FILE = Path(__file__).parent / "debug.log"
+# Setup debug logging - use exe directory for compiled apps
+def get_app_dir():
+    """Get the application directory (works for both script and compiled exe)."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe
+        return Path(sys.executable).parent
+    else:
+        # Running as script
+        return Path(__file__).parent
+
+APP_DIR = get_app_dir()
+LOG_FILE = APP_DIR / "debug.log"
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -998,7 +1009,7 @@ class WranglerMasterApp:
 
         def browse_bg(e):
             logger.debug("browse_bg called")
-            def on_result(e: ft.FilePickerResultEvent):
+            def on_result(e):
                 if e.files:
                     bg_field.value = e.files[0].path
                     self.page.update()
@@ -1070,7 +1081,7 @@ class WranglerMasterApp:
         logger.debug("Settings dialog should be visible now")
 
     def _pick_json_file(self, callback):
-        def on_result(e: ft.FilePickerResultEvent):
+        def on_result(e):
             if e.files:
                 path = e.files[0].path
                 self.json_path_text.value = f"JSON: {os.path.basename(path)}"
