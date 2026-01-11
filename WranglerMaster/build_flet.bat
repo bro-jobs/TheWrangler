@@ -36,7 +36,7 @@ pip uninstall flet flet-cli flet-core flet-desktop flet-runtime flet-web -y >nul
 REM Install exact versions needed for Flet 0.19.0
 echo.
 echo Installing Flet 0.19.0 and dependencies...
-pip install flet==0.19.0 requests --quiet
+pip install flet==0.19.0 requests pyinstaller --quiet
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies.
     call deactivate
