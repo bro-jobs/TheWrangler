@@ -564,17 +564,16 @@ class WranglerMasterApp:
         # Build the main layout
         self._rebuild_panels()
 
-        # Background image (if set)
+        # Background image (if set) - use expand and COVER fit to fill window
         bg_controls = []
         if self.settings.background_image and os.path.exists(self.settings.background_image):
             bg_controls.append(
                 ft.Container(
                     expand=True,
-                    content=ft.Image(
-                        src=self.settings.background_image,
-                        fit=ft.ImageFit.COVER,
-                        opacity=self.settings.background_opacity,
-                    ),
+                    # Use image_src on Container for better full-window coverage
+                    image_src=self.settings.background_image,
+                    image_fit=ft.ImageFit.COVER,
+                    image_opacity=self.settings.background_opacity,
                 )
             )
 
