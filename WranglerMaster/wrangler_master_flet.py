@@ -289,6 +289,7 @@ class InstancePanel(ft.UserControl):
         on_stop,
         on_resume,
         on_remove,
+        on_advanced,
         on_settings_changed,
         panel_opacity: float = 1.0,
     ):
@@ -299,6 +300,7 @@ class InstancePanel(ft.UserControl):
         self._on_stop = on_stop
         self._on_resume = on_resume
         self._on_remove = on_remove
+        self._on_advanced = on_advanced
         self._on_settings_changed = on_settings_changed
         self.panel_opacity = panel_opacity
 
@@ -362,6 +364,12 @@ class InstancePanel(ft.UserControl):
             on_click=lambda _: self._on_stop(self.instance),
         )
 
+        self.advanced_btn = ft.ElevatedButton(
+            "Advanced",
+            style=btn_style(Colors.BG_LIGHTER),
+            on_click=lambda _: self._on_advanced(self.instance),
+        )
+
         self.remove_btn = ft.IconButton(
             icon=ft.icons.CLOSE,
             icon_color=Colors.RED,
@@ -420,6 +428,7 @@ class InstancePanel(ft.UserControl):
                             self.run_btn,
                             self.resume_btn,
                             self.stop_btn,
+                            self.advanced_btn,
                             ft.Container(expand=True),
                             self.remove_btn,
                         ],
@@ -487,10 +496,12 @@ class InstancePanel(ft.UserControl):
         can_run = status.reachable and status.state in ("idle", "stopped")
         can_resume = status.reachable and status.state in ("idle", "stopped") and status.has_incomplete_orders
         can_stop = status.reachable and status.is_executing
+        can_advanced = status.reachable and status.state in ("idle", "stopped")
 
         self.run_btn.disabled = not can_run
         self.resume_btn.disabled = not can_resume
         self.stop_btn.disabled = not can_stop
+        self.advanced_btn.disabled = not can_advanced
 
         try:
             self.update()
@@ -754,6 +765,7 @@ class WranglerMasterApp:
                     on_stop=self._on_stop,
                     on_resume=self._on_resume,
                     on_remove=self._on_remove,
+                    on_advanced=self._on_advanced,
                     on_settings_changed=self._save_config,
                     panel_opacity=panel_opacity,
                 )
@@ -850,6 +862,273 @@ class WranglerMasterApp:
         self.page.dialog = dlg
         dlg.open = True
         self.page.update()
+
+    def _on_advanced(self, instance: WranglerInstance):
+        """Shows the advanced run options dialog."""
+        logger.debug(f"_on_advanced called for {instance.name}")
+
+        config = instance.get_advanced_config()
+
+        # Mode selection
+        mode_var = config.mode
+
+        # Timer fields
+        timer_hours = ft.TextField(
+            label="Hours",
+            value=str(config.timer_hours),
+            width=80,
+            border_radius=0,
+        )
+        timer_minutes = ft.TextField(
+            label="Minutes",
+            value=str(config.timer_minutes),
+            width=80,
+            border_radius=0,
+        )
+
+        # Schedule fields
+        schedule_start_hour = ft.TextField(
+            label="Start Hour",
+            value=f"{config.schedule_start_hour:02d}",
+            width=80,
+            border_radius=0,
+        )
+        schedule_start_minute = ft.TextField(
+            label="Start Min",
+            value=f"{config.schedule_start_minute:02d}",
+            width=80,
+            border_radius=0,
+        )
+        schedule_end_hour = ft.TextField(
+            label="End Hour",
+            value=f"{config.schedule_end_hour:02d}",
+            width=80,
+            border_radius=0,
+        )
+        schedule_end_minute = ft.TextField(
+            label="End Min",
+            value=f"{config.schedule_end_minute:02d}",
+            width=80,
+            border_radius=0,
+        )
+
+        # Use resume checkbox
+        use_resume_cb = ft.Checkbox(
+            label="Use Resume (instead of Run)",
+            value=config.use_resume,
+        )
+
+        # Radio buttons for mode selection
+        mode_group = ft.RadioGroup(
+            value=mode_var,
+            content=ft.Row([
+                ft.Radio(value="none", label="None"),
+                ft.Radio(value="timer", label="Timer"),
+                ft.Radio(value="schedule", label="Schedule"),
+            ]),
+        )
+
+        # Timer section
+        timer_section = ft.Container(
+            content=ft.Column([
+                ft.Text("Timer Mode: Run for a set duration", size=12, color=Colors.TEXT_MUTED),
+                ft.Row([timer_hours, timer_minutes]),
+            ]),
+            padding=10,
+        )
+
+        # Schedule section
+        schedule_section = ft.Container(
+            content=ft.Column([
+                ft.Text("Schedule Mode: Run during specific hours daily", size=12, color=Colors.TEXT_MUTED),
+                ft.Row([
+                    ft.Text("Start:", width=50),
+                    schedule_start_hour,
+                    ft.Text(":"),
+                    schedule_start_minute,
+                ]),
+                ft.Row([
+                    ft.Text("End:", width=50),
+                    schedule_end_hour,
+                    ft.Text(":"),
+                    schedule_end_minute,
+                ]),
+            ]),
+            padding=10,
+        )
+
+        def close_dlg(e):
+            dlg.open = False
+            self.page.update()
+
+        def start_advanced(e):
+            logger.debug("start_advanced called")
+            try:
+                # Build config from form values
+                new_config = AdvancedRunConfig(
+                    mode=mode_group.value,
+                    timer_hours=int(timer_hours.value),
+                    timer_minutes=int(timer_minutes.value),
+                    schedule_start_hour=int(schedule_start_hour.value),
+                    schedule_start_minute=int(schedule_start_minute.value),
+                    schedule_end_hour=int(schedule_end_hour.value),
+                    schedule_end_minute=int(schedule_end_minute.value),
+                    use_resume=use_resume_cb.value,
+                )
+
+                # Save config to instance
+                instance.set_advanced_config(new_config)
+                self._save_config()
+
+                dlg.open = False
+                self.page.update()
+
+                # Start based on mode
+                if new_config.mode == "none":
+                    # Just run/resume normally
+                    if new_config.use_resume:
+                        self._on_resume(instance)
+                    else:
+                        self._on_run(instance)
+                elif new_config.mode == "timer":
+                    self._start_timer_mode(instance, new_config)
+                elif new_config.mode == "schedule":
+                    self._start_schedule_mode(instance, new_config)
+
+            except ValueError as ex:
+                logger.error(f"Invalid value: {ex}")
+                self._set_status(f"Error: Invalid value in form")
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Advanced Run: {instance.name}"),
+            content=ft.Column(
+                tight=True,
+                width=400,
+                scroll=ft.ScrollMode.AUTO,
+                controls=[
+                    ft.Text("Select Run Mode:", weight=ft.FontWeight.BOLD),
+                    mode_group,
+                    ft.Divider(),
+                    timer_section,
+                    ft.Divider(),
+                    schedule_section,
+                    ft.Divider(),
+                    use_resume_cb,
+                ],
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dlg),
+                ft.ElevatedButton(
+                    "Start",
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=0),
+                        bgcolor=Colors.GREEN,
+                        color=Colors.TEXT_DARK,
+                    ),
+                    on_click=start_advanced,
+                ),
+            ],
+        )
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
+
+    def _start_timer_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
+        """Starts timer mode for an instance."""
+        duration_seconds = config.timer_hours * 3600 + config.timer_minutes * 60
+        if duration_seconds <= 0:
+            self._set_status(f"{instance.name}: Invalid timer duration")
+            return
+
+        key = f"{instance.host}:{instance.port}"
+        end_time = datetime.now() + timedelta(seconds=duration_seconds)
+
+        self.active_timers[key] = {
+            "instance": instance,
+            "end_time": end_time,
+            "config": config,
+        }
+
+        # Start the run
+        if config.use_resume:
+            self._on_resume(instance)
+        else:
+            self._on_run(instance)
+
+        hours, mins = config.timer_hours, config.timer_minutes
+        self._set_status(f"{instance.name}: Timer started ({hours}h {mins}m)")
+
+        # Start timer check thread
+        def check_timer():
+            while key in self.active_timers:
+                time.sleep(10)
+                if datetime.now() >= self.active_timers[key]["end_time"]:
+                    # Time's up - stop the instance
+                    WranglerClient.stop_gently(instance)
+                    if instance.go_home_after_session:
+                        time.sleep(2)
+                        WranglerClient.go_home(instance)
+                    del self.active_timers[key]
+                    self._set_status(f"{instance.name}: Timer ended")
+                    break
+
+        threading.Thread(target=check_timer, daemon=True).start()
+
+    def _start_schedule_mode(self, instance: WranglerInstance, config: AdvancedRunConfig):
+        """Starts schedule mode for an instance."""
+        key = f"{instance.host}:{instance.port}"
+
+        self.active_timers[key] = {
+            "instance": instance,
+            "config": config,
+            "mode": "schedule",
+            "last_action": None,
+        }
+
+        self._set_status(
+            f"{instance.name}: Schedule active "
+            f"({config.schedule_start_hour:02d}:{config.schedule_start_minute:02d} - "
+            f"{config.schedule_end_hour:02d}:{config.schedule_end_minute:02d})"
+        )
+
+        # Check schedule immediately and start monitoring
+        def check_schedule():
+            while key in self.active_timers:
+                schedule_data = self.active_timers.get(key)
+                if not schedule_data or schedule_data.get("mode") != "schedule":
+                    break
+
+                cfg = schedule_data["config"]
+                inst = schedule_data["instance"]
+                now = datetime.now()
+                current_minutes = now.hour * 60 + now.minute
+                start_minutes = cfg.schedule_start_hour * 60 + cfg.schedule_start_minute
+                end_minutes = cfg.schedule_end_hour * 60 + cfg.schedule_end_minute
+
+                in_window = start_minutes <= current_minutes < end_minutes
+
+                if in_window and schedule_data["last_action"] != "started":
+                    # Start/resume
+                    if cfg.use_resume:
+                        WranglerClient.resume_orders(inst)
+                    else:
+                        if self.default_json_path:
+                            WranglerClient.run_order(inst, self.default_json_path)
+                    schedule_data["last_action"] = "started"
+                    self._set_status(f"{inst.name}: Started (schedule)")
+                elif not in_window and schedule_data["last_action"] == "started":
+                    # Stop
+                    WranglerClient.stop_gently(inst)
+                    if inst.go_home_after_session:
+                        time.sleep(2)
+                        WranglerClient.go_home(inst)
+                    schedule_data["last_action"] = "stopped"
+                    self._set_status(f"{inst.name}: Stopped (schedule)")
+
+                time.sleep(60)  # Check every minute
+
+        threading.Thread(target=check_schedule, daemon=True).start()
 
     # =========================================================================
     # Bulk Actions
