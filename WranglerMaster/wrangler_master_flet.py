@@ -114,6 +114,17 @@ class Colors:
     TEXT_MUTED = "#72767d"      # Secondary text
     TEXT_DARK = "#000000"       # Text on light backgrounds
 
+    @staticmethod
+    def with_opacity(hex_color: str, opacity: float) -> str:
+        """Convert hex color to rgba with opacity (0.0 to 1.0)."""
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        # Flet uses 0-255 for alpha in some contexts, but we'll use the color format
+        alpha = int(opacity * 255)
+        return f"#{alpha:02x}{hex_color}"
+
 
 # =============================================================================
 # Data Classes
@@ -279,6 +290,7 @@ class InstancePanel(ft.UserControl):
         on_resume,
         on_remove,
         on_settings_changed,
+        panel_opacity: float = 1.0,
     ):
         super().__init__()
         self.instance = instance
@@ -288,6 +300,7 @@ class InstancePanel(ft.UserControl):
         self._on_resume = on_resume
         self._on_remove = on_remove
         self._on_settings_changed = on_settings_changed
+        self.panel_opacity = panel_opacity
 
     def build(self):
         # Status indicator
@@ -363,9 +376,12 @@ class InstancePanel(ft.UserControl):
             on_change=self._on_go_home_change,
         )
 
+        # Calculate panel background with opacity
+        panel_bg = Colors.with_opacity(Colors.BG_DARK, self.panel_opacity) if self.panel_opacity < 1.0 else Colors.BG_DARK
+
         # Layout
         return ft.Container(
-            bgcolor=Colors.BG_DARK,
+            bgcolor=panel_bg,
             padding=15,
             border_radius=0,
             content=ft.Column(
@@ -596,6 +612,13 @@ class WranglerMasterApp:
 
     def _build_toolbar(self) -> ft.Container:
         """Builds the toolbar."""
+        # Calculate toolbar opacity (half of panel opacity)
+        if self.settings.background_image:
+            toolbar_opacity = 1.0 - (self.settings.background_opacity * 0.5)
+            toolbar_bg = Colors.with_opacity(Colors.BG_DARKEST, toolbar_opacity)
+        else:
+            toolbar_bg = Colors.BG_DARKEST
+
         # Button style helper
         def btn_style(bg_color, text_color=Colors.TEXT_PRIMARY):
             return ft.ButtonStyle(
@@ -605,7 +628,7 @@ class WranglerMasterApp:
             )
 
         return ft.Container(
-            bgcolor=Colors.BG_DARKEST,
+            bgcolor=toolbar_bg,
             padding=ft.padding.symmetric(horizontal=15, vertical=10),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -657,8 +680,15 @@ class WranglerMasterApp:
 
     def _build_status_bar(self) -> ft.Container:
         """Builds the status bar."""
+        # Use same opacity as toolbar
+        if self.settings.background_image:
+            toolbar_opacity = 1.0 - (self.settings.background_opacity * 0.5)
+            status_bg = Colors.with_opacity(Colors.BG_DARKEST, toolbar_opacity)
+        else:
+            status_bg = Colors.BG_DARKEST
+
         return ft.Container(
-            bgcolor=Colors.BG_DARKEST,
+            bgcolor=status_bg,
             padding=ft.padding.symmetric(horizontal=15, vertical=8),
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -691,6 +721,9 @@ class WranglerMasterApp:
                 if not instance.enabled:
                     continue
 
+                # Calculate panel opacity (inverse of background opacity setting)
+                panel_opacity = 1.0 - self.settings.background_opacity if self.settings.background_image else 1.0
+
                 panel = InstancePanel(
                     instance,
                     on_run=self._on_run,
@@ -698,11 +731,12 @@ class WranglerMasterApp:
                     on_resume=self._on_resume,
                     on_remove=self._on_remove,
                     on_settings_changed=self._save_config,
+                    panel_opacity=panel_opacity,
                 )
 
-                # Wrap in container for sizing
+                # Wrap in container for sizing (wider to show all options)
                 panel_container = ft.Container(
-                    width=320,
+                    width=350,
                     margin=0,
                     padding=1,
                     content=panel,
