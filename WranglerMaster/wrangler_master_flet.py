@@ -537,6 +537,8 @@ class WranglerMasterApp:
         self.page.bgcolor = Colors.BG_PRIMARY
         self.page.padding = 0
         self.page.spacing = 0
+        # Hide Windows title bar for cleaner look
+        self.page.window_frameless = True
 
     def _build_ui(self):
         # Status bar text
@@ -562,17 +564,16 @@ class WranglerMasterApp:
         # Build the main layout
         self._rebuild_panels()
 
-        # Background image (if set)
+        # Background image (if set) - use expand and COVER fit to fill window
         bg_controls = []
         if self.settings.background_image and os.path.exists(self.settings.background_image):
             bg_controls.append(
                 ft.Container(
                     expand=True,
-                    content=ft.Image(
-                        src=self.settings.background_image,
-                        fit=ft.ImageFit.COVER,
-                        opacity=self.settings.background_opacity,
-                    ),
+                    # Use image_src on Container for better full-window coverage
+                    image_src=self.settings.background_image,
+                    image_fit=ft.ImageFit.COVER,
+                    image_opacity=self.settings.background_opacity,
                 )
             )
 
@@ -627,54 +628,77 @@ class WranglerMasterApp:
                 color=text_color,
             )
 
-        return ft.Container(
-            bgcolor=toolbar_bg,
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                controls=[
-                    ft.Text(
-                        "Wrangler Master Control",
-                        size=20,
-                        weight=ft.FontWeight.BOLD,
-                        color=Colors.TEXT_PRIMARY,
-                    ),
-                    ft.Row(
-                        spacing=5,
-                        controls=[
-                            ft.ElevatedButton(
-                                "Settings",
-                                style=btn_style(Colors.BG_LIGHTER),
-                                on_click=self._show_settings,
-                            ),
-                            ft.ElevatedButton(
-                                "Refresh",
-                                style=btn_style(Colors.BLURPLE),
-                                on_click=lambda _: self._refresh_all(),
-                            ),
-                            ft.ElevatedButton(
-                                "+ Add",
-                                style=btn_style(Colors.BLURPLE),
-                                on_click=self._show_add_dialog,
-                            ),
-                            ft.ElevatedButton(
-                                "Stop All",
-                                style=btn_style(Colors.BG_LIGHTER),
-                                on_click=lambda _: self._stop_all(),
-                            ),
-                            ft.ElevatedButton(
-                                "Resume All",
-                                style=btn_style(Colors.BLURPLE),
-                                on_click=lambda _: self._resume_all(),
-                            ),
-                            ft.ElevatedButton(
-                                "Start All",
-                                style=btn_style(Colors.GREEN, Colors.TEXT_DARK),
-                                on_click=lambda _: self._start_all(),
-                            ),
-                        ],
-                    ),
-                ],
+        # Window control buttons for frameless window
+        def minimize_window(e):
+            self.page.window_minimized = True
+            self.page.update()
+
+        def close_window(e):
+            self.page.window_close()
+
+        return ft.WindowDragArea(
+            content=ft.Container(
+                bgcolor=toolbar_bg,
+                padding=ft.padding.symmetric(horizontal=15, vertical=10),
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Text(
+                            "Wrangler Master Control",
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            color=Colors.TEXT_PRIMARY,
+                        ),
+                        ft.Row(
+                            spacing=5,
+                            controls=[
+                                ft.ElevatedButton(
+                                    "Settings",
+                                    style=btn_style(Colors.BG_LIGHTER),
+                                    on_click=self._show_settings,
+                                ),
+                                ft.ElevatedButton(
+                                    "Refresh",
+                                    style=btn_style(Colors.BLURPLE),
+                                    on_click=lambda _: self._refresh_all(),
+                                ),
+                                ft.ElevatedButton(
+                                    "+ Add",
+                                    style=btn_style(Colors.BLURPLE),
+                                    on_click=self._show_add_dialog,
+                                ),
+                                ft.ElevatedButton(
+                                    "Stop All",
+                                    style=btn_style(Colors.BG_LIGHTER),
+                                    on_click=lambda _: self._stop_all(),
+                                ),
+                                ft.ElevatedButton(
+                                    "Resume All",
+                                    style=btn_style(Colors.BLURPLE),
+                                    on_click=lambda _: self._resume_all(),
+                                ),
+                                ft.ElevatedButton(
+                                    "Start All",
+                                    style=btn_style(Colors.GREEN, Colors.TEXT_DARK),
+                                    on_click=lambda _: self._start_all(),
+                                ),
+                                # Window controls
+                                ft.IconButton(
+                                    icon=ft.icons.MINIMIZE,
+                                    icon_color=Colors.TEXT_MUTED,
+                                    icon_size=18,
+                                    on_click=minimize_window,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.CLOSE,
+                                    icon_color=Colors.TEXT_MUTED,
+                                    icon_size=18,
+                                    on_click=close_window,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
             ),
         )
 
@@ -736,7 +760,7 @@ class WranglerMasterApp:
 
                 # Wrap in container for sizing (wider to show all options)
                 panel_container = ft.Container(
-                    width=350,
+                    width=500,
                     margin=0,
                     padding=1,
                     content=panel,
