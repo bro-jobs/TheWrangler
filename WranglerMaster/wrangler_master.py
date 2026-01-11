@@ -1380,6 +1380,10 @@ class WranglerMasterApp(ctk.CTk):
         # Advanced run tracking
         self.active_timers: Dict[str, dict] = {}
         self.active_schedules: Dict[str, dict] = {}
+        # Track manually started instances to avoid schedule interference
+        self.manually_started: Dict[str, bool] = {}
+        # Track manually stopped instances during schedule window to prevent auto-restart
+        self.manually_stopped: Dict[str, bool] = {}
 
         # Background image
         self.bg_image = None
@@ -1832,6 +1836,11 @@ class WranglerMasterApp(ctk.CTk):
             path = self.default_json_path
 
         self._set_status(f"Starting {instance.name}...")
+        key = f"{instance.host}:{instance.port}"
+        # Track manual start - schedule won't stop this at window end
+        self.manually_started[key] = True
+        # Clear manually_stopped flag since user is starting again
+        self.manually_stopped[key] = False
 
         def do_run():
             success, message = WranglerClient.run_order(instance, json_path=path)
@@ -1848,6 +1857,11 @@ class WranglerMasterApp(ctk.CTk):
     def _on_panel_stop(self, instance: WranglerInstance):
         """Handles stop button click from a panel."""
         self._set_status(f"Stopping {instance.name}...")
+        key = f"{instance.host}:{instance.port}"
+        # Track manual stop - schedule won't restart until next window
+        self.manually_stopped[key] = True
+        # Clear manually_started flag
+        self.manually_started[key] = False
 
         def do_stop():
             success, message = WranglerClient.stop_gently(instance)
@@ -1864,6 +1878,11 @@ class WranglerMasterApp(ctk.CTk):
     def _on_panel_resume(self, instance: WranglerInstance):
         """Handles resume button click from a panel."""
         self._set_status(f"Resuming {instance.name}...")
+        key = f"{instance.host}:{instance.port}"
+        # Track manual start - schedule won't stop this at window end
+        self.manually_started[key] = True
+        # Clear manually_stopped flag since user is resuming
+        self.manually_stopped[key] = False
 
         def do_resume():
             success, message = WranglerClient.resume_orders(instance)
@@ -1946,6 +1965,15 @@ class WranglerMasterApp(ctk.CTk):
         duration_seconds = config.timer_hours * 3600 + config.timer_minutes * 60
         end_time = datetime.now() + timedelta(seconds=duration_seconds)
 
+        # Clear any conflicting schedule for this instance
+        if key in self.active_schedules:
+            del self.active_schedules[key]
+            self._set_status(f"{instance.name}: Previous schedule cancelled, starting timer")
+
+        # Clear manual tracking flags
+        self.manually_started[key] = False
+        self.manually_stopped[key] = False
+
         self.active_timers[key] = {
             "end_time": end_time,
             "stopped": False,
@@ -1975,18 +2003,32 @@ class WranglerMasterApp(ctk.CTk):
         """Starts schedule mode for an instance."""
         key = f"{instance.host}:{instance.port}"
 
+        # Clear any conflicting timer for this instance
+        if key in self.active_timers:
+            del self.active_timers[key]
+            self._set_status(f"{instance.name}: Previous timer cancelled, activating schedule")
+
+        # Check if replacing an existing schedule
+        replacing_schedule = key in self.active_schedules
+
+        # Clear manual tracking flags when schedule is activated
+        self.manually_started[key] = False
+        self.manually_stopped[key] = False
+
         self.active_schedules[key] = {
             "config": config,
             "instance": instance,
-            "last_action": None
+            "last_action": None,
+            "window_date": None  # Track which day we last processed to reset state daily
         }
 
         mode_desc = "resume" if config.use_resume else "run"
-        self._set_status(
-            f"{instance.name}: Schedule activated ({mode_desc}) "
+        status_msg = (
+            f"{instance.name}: Schedule {'updated' if replacing_schedule else 'activated'} ({mode_desc}) "
             f"({config.schedule_start_hour:02d}:{config.schedule_start_minute:02d} - "
             f"{config.schedule_end_hour:02d}:{config.schedule_end_minute:02d})"
         )
+        self._set_status(status_msg)
 
         self._check_schedule_for_instance(key)
 
@@ -2029,7 +2071,16 @@ class WranglerMasterApp(ctk.CTk):
             self._check_schedule_for_instance(key)
 
     def _check_schedule_for_instance(self, key: str):
-        """Checks and manages schedule for a single instance."""
+        """Checks and manages schedule for a single instance.
+
+        Edge cases handled:
+        1. Schedule replacement: Handled in _start_schedule_mode (clears and replaces)
+        2. Manual start before window: Won't stop at window end (manually_started flag)
+        3. Manual stop during window: Won't restart until next window (manually_stopped flag)
+        4. Timer + Schedule conflict: Handled in _start_timer_mode/_start_schedule_mode
+        5. Day boundary: Reset state when entering new schedule window
+        6. Re-activating schedule during window: Checks if already in window
+        """
         if key not in self.active_schedules:
             return
 
@@ -2037,8 +2088,10 @@ class WranglerMasterApp(ctk.CTk):
         config = schedule_data["config"]
         instance = schedule_data["instance"]
         last_action = schedule_data["last_action"]
+        window_date = schedule_data.get("window_date")
 
         now = datetime.now()
+        today = now.date()
         current_minutes = now.hour * 60 + now.minute
         start_minutes = config.schedule_start_hour * 60 + config.schedule_start_minute
         end_minutes = config.schedule_end_hour * 60 + config.schedule_end_minute
@@ -2046,13 +2099,33 @@ class WranglerMasterApp(ctk.CTk):
         if start_minutes <= end_minutes:
             in_window = start_minutes <= current_minutes < end_minutes
         else:
+            # Overnight schedule (e.g., 22:00 - 08:00)
             in_window = current_minutes >= start_minutes or current_minutes < end_minutes
+
+        # Reset state at day/window boundary
+        # For normal schedules: reset when we enter a new day's window
+        # For overnight schedules: reset when we cross midnight into end portion
+        if in_window:
+            if window_date is None or window_date != today:
+                # New schedule window - reset manual flags and last_action
+                schedule_data["window_date"] = today
+                schedule_data["last_action"] = None
+                last_action = None
+                self.manually_stopped[key] = False
+                # Don't reset manually_started here - let it persist until schedule takes over
 
         status = WranglerClient.get_status(instance)
 
         if in_window:
+            # Check if user manually stopped during this window - don't restart
+            if self.manually_stopped.get(key, False):
+                return
+
+            # Check if we should start
             if last_action != "started" and not status.is_executing:
                 schedule_data["last_action"] = "started"
+                # Clear manually_started since schedule is now managing this instance
+                self.manually_started[key] = False
 
                 def do_start(inst=instance, use_resume=config.use_resume):
                     if use_resume:
@@ -2070,7 +2143,16 @@ class WranglerMasterApp(ctk.CTk):
                     self.after(0, lambda: self._update_panel(inst, st))
 
                 threading.Thread(target=do_start, daemon=True).start()
+            elif status.is_executing and last_action != "started":
+                # Bot is already running (possibly manually started before window)
+                # Just update last_action to track state, don't restart
+                schedule_data["last_action"] = "started"
         else:
+            # Outside window - check if we should stop
+            # Don't stop if manually started (user started outside schedule control)
+            if self.manually_started.get(key, False):
+                return
+
             if last_action != "stopped" and status.is_executing:
                 schedule_data["last_action"] = "stopped"
 
@@ -2098,6 +2180,11 @@ class WranglerMasterApp(ctk.CTk):
                 del self.active_timers[key]
             if key in self.active_schedules:
                 del self.active_schedules[key]
+            # Clean up manual tracking
+            if key in self.manually_started:
+                del self.manually_started[key]
+            if key in self.manually_stopped:
+                del self.manually_stopped[key]
 
             self.instances.remove(instance)
             self._refresh_panels()
