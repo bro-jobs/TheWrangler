@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-Wrangler Master Control Program - Flet Edition
-===============================================
+Wrangler Master Control Program - Flet Edition (0.19.0 Compatible)
+===================================================================
 
 A modern GUI application using Flet (Flutter) to control multiple TheWrangler instances.
+
+Designed for Flet 0.19.0 for optimal size (~11MB) and fast startup.
 
 Features:
 - Discord-like dark theme with sharp edges
@@ -258,7 +260,7 @@ class WranglerClient:
 # Instance Panel
 # =============================================================================
 
-class InstancePanel(ft.Container):
+class InstancePanel(ft.UserControl):
     """A panel displaying a single Wrangler instance."""
 
     STATUS_COLORS = {
@@ -287,9 +289,7 @@ class InstancePanel(ft.Container):
         self._on_remove = on_remove
         self._on_settings_changed = on_settings_changed
 
-        self._build()
-
-    def _build(self):
+    def build(self):
         # Status indicator
         self.status_dot = ft.Container(
             width=12,
@@ -350,7 +350,7 @@ class InstancePanel(ft.Container):
         )
 
         self.remove_btn = ft.IconButton(
-            icon=ft.Icons.CLOSE,
+            icon=ft.icons.CLOSE,
             icon_color=Colors.RED,
             icon_size=18,
             on_click=lambda _: self._on_remove(self.instance),
@@ -365,7 +365,7 @@ class InstancePanel(ft.Container):
         )
 
         # Layout
-        self.content = ft.Container(
+        return ft.Container(
             bgcolor=Colors.BG_DARK,
             padding=15,
             border_radius=0,
@@ -477,8 +477,10 @@ class InstancePanel(ft.Container):
         self.resume_btn.disabled = not can_resume
         self.stop_btn.disabled = not can_stop
 
-        if self.page:
+        try:
             self.update()
+        except Exception:
+            pass
 
 
 # =============================================================================
@@ -498,6 +500,11 @@ class WranglerMasterApp:
         self.polling_active = True
         self.active_timers: Dict[str, dict] = {}
 
+        # File picker (add once to page)
+        self.file_picker = ft.FilePicker(on_result=self._on_file_picked)
+        self.file_picker_callback = None
+        page.overlay.append(self.file_picker)
+
         self._load_settings()
         self._load_config()
         self._setup_page()
@@ -507,47 +514,14 @@ class WranglerMasterApp:
 
     def _setup_page(self):
         self.page.title = "Wrangler Master Control"
-        self.page.window.width = 1000
-        self.page.window.height = 750
-        self.page.window.min_width = 800
-        self.page.window.min_height = 600
+        # Flet 0.19.0 uses page.window_* properties
+        self.page.window_width = 1000
+        self.page.window_height = 750
+        self.page.window_min_width = 800
+        self.page.window_min_height = 600
+        self.page.bgcolor = Colors.BG_PRIMARY
         self.page.padding = 0
         self.page.spacing = 0
-
-        # Set up background - use decoration for background image if set
-        self._apply_background()
-
-    def _apply_background(self):
-        """Apply background image using page decoration (Flet 0.24+)."""
-        try:
-            if self.settings.background_image and os.path.exists(self.settings.background_image):
-                logger.debug(f"Applying background image: {self.settings.background_image}")
-                # Make page background transparent so decoration shows through
-                # Try both ft.Colors (newer) and ft.colors (older) API
-                try:
-                    transparent = ft.Colors.TRANSPARENT
-                except AttributeError:
-                    transparent = ft.colors.TRANSPARENT
-
-                self.page.bgcolor = transparent
-                self.page.decoration = ft.BoxDecoration(
-                    color=Colors.BG_PRIMARY,  # Fallback color
-                    image=ft.DecorationImage(
-                        src=self.settings.background_image,
-                        fit=ft.ImageFit.COVER,
-                        opacity=self.settings.background_opacity,
-                    ),
-                )
-                logger.debug("Background decoration applied successfully")
-            else:
-                # No background image - use solid color
-                self.page.bgcolor = Colors.BG_PRIMARY
-                self.page.decoration = None
-        except Exception as e:
-            logger.error(f"Failed to apply background: {e}")
-            # Fallback to solid color
-            self.page.bgcolor = Colors.BG_PRIMARY
-            self.page.decoration = None
 
     def _build_ui(self):
         # Status bar text
@@ -573,8 +547,22 @@ class WranglerMasterApp:
         # Build the main layout
         self._rebuild_panels()
 
-        # Main content - no Stack needed, background is handled by page.decoration
-        self.main_content = ft.Column(
+        # Background image (if set)
+        bg_controls = []
+        if self.settings.background_image and os.path.exists(self.settings.background_image):
+            bg_controls.append(
+                ft.Container(
+                    expand=True,
+                    content=ft.Image(
+                        src=self.settings.background_image,
+                        fit=ft.ImageFit.COVER,
+                        opacity=self.settings.background_opacity,
+                    ),
+                )
+            )
+
+        # Content layer
+        content_layer = ft.Column(
             expand=True,
             spacing=0,
             controls=[
@@ -582,7 +570,6 @@ class WranglerMasterApp:
                 ft.Container(
                     expand=True,
                     padding=0,
-                    bgcolor=None,  # Transparent to show page background
                     content=ft.Column(
                         expand=True,
                         scroll=ft.ScrollMode.AUTO,
@@ -593,6 +580,18 @@ class WranglerMasterApp:
                 self._build_status_bar(),
             ],
         )
+
+        # Use Stack for background image support
+        if bg_controls:
+            self.main_content = ft.Stack(
+                expand=True,
+                controls=[
+                    bg_controls[0],
+                    content_layer,
+                ],
+            )
+        else:
+            self.main_content = content_layer
 
         self.page.add(self.main_content)
 
@@ -737,9 +736,8 @@ class WranglerMasterApp:
 
         def run():
             success, message = WranglerClient.run_order(instance, json_path)
-            self.page.run_thread(lambda: self._set_status(
-                f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
-            ))
+            status_msg = f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
+            self._set_status(status_msg)
             time.sleep(1)
             self._update_instance_status(instance)
 
@@ -750,9 +748,8 @@ class WranglerMasterApp:
 
         def stop():
             success, message = WranglerClient.stop_gently(instance)
-            self.page.run_thread(lambda: self._set_status(
-                f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
-            ))
+            status_msg = f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
+            self._set_status(status_msg)
             time.sleep(2)
             self._update_instance_status(instance)
 
@@ -763,9 +760,8 @@ class WranglerMasterApp:
 
         def resume():
             success, message = WranglerClient.resume_orders(instance)
-            self.page.run_thread(lambda: self._set_status(
-                f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
-            ))
+            status_msg = f"{instance.name}: {message}" if success else f"{instance.name} failed: {message}"
+            self._set_status(status_msg)
             time.sleep(1)
             self._update_instance_status(instance)
 
@@ -793,8 +789,8 @@ class WranglerMasterApp:
                 ft.TextButton("No", on_click=do_remove),
             ],
         )
-        # Add dialog to overlay first (required in newer Flet versions)
-        self.page.overlay.append(dlg)
+        # Flet 0.19.0 style dialog
+        self.page.dialog = dlg
         dlg.open = True
         self.page.update()
 
@@ -826,9 +822,7 @@ class WranglerMasterApp:
                         successes += 1
                     else:
                         failures += 1
-            self.page.run_thread(lambda: self._set_status(
-                f"Started {successes} instances, {failures} failed"
-            ))
+            self._set_status(f"Started {successes} instances, {failures} failed")
             time.sleep(2)
             self._refresh_all()
 
@@ -848,9 +842,7 @@ class WranglerMasterApp:
                         successes += 1
                     else:
                         failures += 1
-            self.page.run_thread(lambda: self._set_status(
-                f"Stopped {successes} instances, {failures} failed"
-            ))
+            self._set_status(f"Stopped {successes} instances, {failures} failed")
             time.sleep(2)
             self._refresh_all()
 
@@ -879,9 +871,7 @@ class WranglerMasterApp:
                     successes += 1
                 else:
                     failures += 1
-            self.page.run_thread(lambda: self._set_status(
-                f"Resumed {successes}, {failures} failed, {skipped} skipped"
-            ))
+            self._set_status(f"Resumed {successes}, {failures} failed, {skipped} skipped")
             time.sleep(2)
             self._refresh_all()
 
@@ -909,7 +899,10 @@ class WranglerMasterApp:
         status = WranglerClient.get_status(instance)
         key = f"{instance.host}:{instance.port}"
         if key in self.panels:
-            self.page.run_thread(lambda: self.panels[key].update_status(status))
+            try:
+                self.panels[key].update_status(status)
+            except Exception as e:
+                logger.error(f"Failed to update panel: {e}")
 
     # =========================================================================
     # Dialogs
@@ -976,8 +969,8 @@ class WranglerMasterApp:
                 ),
             ],
         )
-        # Add dialog to overlay first (required in newer Flet versions)
-        self.page.overlay.append(dlg)
+        # Flet 0.19.0 style dialog
+        self.page.dialog = dlg
         dlg.open = True
         self.page.update()
         logger.debug("Dialog should be visible now")
@@ -1009,15 +1002,10 @@ class WranglerMasterApp:
 
         def browse_bg(e):
             logger.debug("browse_bg called")
-            def on_result(e):
-                if e.files:
-                    bg_field.value = e.files[0].path
-                    self.page.update()
-
-            picker = ft.FilePicker(on_result=on_result)
-            self.page.overlay.append(picker)
-            self.page.update()
-            picker.pick_files(
+            # Store the text field ref for the callback
+            self._bg_field_ref = bg_field
+            self.file_picker_callback = self._on_bg_file_picked
+            self.file_picker.pick_files(
                 allowed_extensions=["png", "jpg", "jpeg", "gif", "bmp"],
                 dialog_title="Select Background Image",
             )
@@ -1074,24 +1062,34 @@ class WranglerMasterApp:
                 ),
             ],
         )
-        # Add dialog to overlay first (required in newer Flet versions)
-        self.page.overlay.append(dlg)
+        # Flet 0.19.0 style dialog
+        self.page.dialog = dlg
         dlg.open = True
         self.page.update()
         logger.debug("Settings dialog should be visible now")
 
+    def _on_bg_file_picked(self, e):
+        """Handle background file pick result."""
+        if e.files and hasattr(self, '_bg_field_ref'):
+            self._bg_field_ref.value = e.files[0].path
+            self.page.update()
+
+    def _on_file_picked(self, e):
+        """General file picker result handler."""
+        if self.file_picker_callback:
+            self.file_picker_callback(e)
+            self.file_picker_callback = None
+
     def _pick_json_file(self, callback):
-        def on_result(e):
+        def on_json_picked(e):
             if e.files:
                 path = e.files[0].path
                 self.json_path_text.value = f"JSON: {os.path.basename(path)}"
                 self.page.update()
                 callback(path)
 
-        picker = ft.FilePicker(on_result=on_result)
-        self.page.overlay.append(picker)
-        self.page.update()
-        picker.pick_files(
+        self.file_picker_callback = on_json_picked
+        self.file_picker.pick_files(
             allowed_extensions=["json"],
             dialog_title="Select JSON File",
         )
@@ -1100,7 +1098,6 @@ class WranglerMasterApp:
         """Rebuilds the entire UI (for settings changes)."""
         logger.debug("_rebuild_ui called")
         self.page.controls.clear()
-        self._apply_background()  # Re-apply background with new settings
         self._build_ui()
         self.page.update()
 
